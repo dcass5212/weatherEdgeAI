@@ -1,0 +1,14 @@
+{
+  "id": "malformed-weather-price",
+  "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+  "conditionId": "0xmalformed",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "outcomePrices": "not-json",
+  "bestBid": "not-a-number",
+  "bestAsk": true,
+  "liquidityNum": "246.4459",
+  "volumeNum": "110.23",
+  "active": true,
+  "closed": false,
+  "updatedAt": "2026-05-08T20:14:15.669791Z"
+}

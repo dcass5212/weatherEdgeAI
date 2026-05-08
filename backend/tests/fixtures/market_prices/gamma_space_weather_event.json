@@ -1,0 +1,40 @@
+{
+  "id": "435186",
+  "slug": "how-many-major-space-weather-events-this-week-may-3-may-9",
+  "title": "How many major Space Weather events this week? (May 3 - May 9)",
+  "category": "Weather",
+  "active": true,
+  "closed": false,
+  "updatedAt": "2026-05-08T20:15:09.358772Z",
+  "tags": [
+    {
+      "id": "84",
+      "label": "Weather",
+      "slug": "weather"
+    }
+  ],
+  "markets": [
+    {
+      "id": "2126654",
+      "question": "Will there be exactly 1 major space event this week?",
+      "conditionId": "0x8feef3a3a77b2eb7ae474b74a4cb1c6981e9620bfee05f783d5a73229800e0cf",
+      "slug": "will-there-be-exactly-1-major-space-weather-event-this-week-311",
+      "endDate": "2026-05-09T00:00:00Z",
+      "liquidity": "246.4459",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0.325\", \"0.675\"]",
+      "volume": "110.23",
+      "active": true,
+      "closed": false,
+      "updatedAt": "2026-05-08T20:14:15.669791Z",
+      "enableOrderBook": true,
+      "volumeNum": 110.23,
+      "liquidityNum": 246.4459,
+      "clobTokenIds": "[\"9898565678409582102817818206844292929274283098421901763656172180035958225960\", \"81491797720993423929479786269738998727438746387338641257645469279313619518277\"]",
+      "spread": 0.47,
+      "lastTradePrice": 0.06,
+      "bestBid": 0.09,
+      "bestAsk": 0.56
+    }
+  ]
+}

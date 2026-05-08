@@ -1,0 +1,20 @@
+{
+  "id": "gamma-weather-2",
+  "conditionId": "0xgammaweather2",
+  "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "clobTokenIds": "[\"yes-token-2\", \"no-token-2\"]",
+  "prices": {
+    "yes-token-2": {
+      "BUY": "0.52",
+      "SELL": "0.48"
+    },
+    "no-token-2": {
+      "BUY": "0.54",
+      "SELL": "0.46"
+    }
+  },
+  "liquidityNum": "750",
+  "volumeNum": "1600",
+  "updatedAt": "2026-05-07T13:00:00Z"
+}

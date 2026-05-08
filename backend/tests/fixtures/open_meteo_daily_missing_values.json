@@ -1,0 +1,11 @@
+{
+  "daily": {
+    "time": ["2026-05-05"],
+    "precipitation_sum": [null],
+    "temperature_2m_max": [],
+    "temperature_2m_min": "malformed"
+  },
+  "daily_units": {
+    "precipitation_sum": "mm"
+  }
+}

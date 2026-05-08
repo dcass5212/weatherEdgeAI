@@ -1,0 +1,115 @@
+{
+  "resolved_predictions": [
+    {
+      "source_market_id": "seed-nyc-rain-may-05",
+      "question": "Will New York City get more than 1 inch of rain on May 5?",
+      "model_version": "baseline_precip_v1",
+      "p_yes": 0.75,
+      "confidence": "medium",
+      "prediction_created_at": "2026-05-04T12:00:00Z",
+      "actual_outcome": "YES",
+      "actual_value": 1.24,
+      "actual_unit": "inch",
+      "resolved_at": "2026-05-06T02:00:00Z",
+      "features_json": {
+        "forecast_precip_total": 1.6,
+        "forecast_precip_unit": "inch",
+        "threshold_value": 1.0,
+        "threshold_unit": "inch",
+        "operator": ">"
+      },
+      "ev_recommendation": {
+        "market_price_yes": 0.52,
+        "market_price_no": 0.48,
+        "edge_yes": 0.23,
+        "edge_no": -0.23,
+        "ev_yes": 0.23,
+        "ev_no": -0.23,
+        "recommendation": "PAPER_BUY_YES",
+        "paper_position_size": 10.0,
+        "reason": "Seed replay YES edge."
+      },
+      "paper_trade": {
+        "side": "YES",
+        "entry_price": 0.52,
+        "quantity": 10.0,
+        "entry_time": "2026-05-04T12:30:00Z",
+        "status": "OPEN"
+      }
+    },
+    {
+      "source_market_id": "seed-chicago-rain-may-06",
+      "question": "Will Chicago receive at least 0.5 inches of rain on May 6?",
+      "model_version": "baseline_precip_v1",
+      "p_yes": 0.4,
+      "confidence": "medium",
+      "prediction_created_at": "2026-05-05T12:00:00Z",
+      "actual_outcome": "NO",
+      "actual_value": 0.18,
+      "actual_unit": "inch",
+      "resolved_at": "2026-05-07T02:00:00Z",
+      "features_json": {
+        "forecast_precip_total": 0.2,
+        "forecast_precip_unit": "inch",
+        "threshold_value": 0.5,
+        "threshold_unit": "inch",
+        "operator": ">="
+      },
+      "ev_recommendation": {
+        "market_price_yes": 0.55,
+        "market_price_no": 0.45,
+        "edge_yes": -0.15,
+        "edge_no": 0.15,
+        "ev_yes": -0.15,
+        "ev_no": 0.15,
+        "recommendation": "PAPER_BUY_NO",
+        "paper_position_size": 10.0,
+        "reason": "Seed replay NO edge."
+      },
+      "paper_trade": {
+        "side": "NO",
+        "entry_price": 0.45,
+        "quantity": 10.0,
+        "entry_time": "2026-05-05T12:30:00Z",
+        "status": "OPEN"
+      }
+    },
+    {
+      "source_market_id": "seed-nyc-rain-may-07",
+      "question": "Will there be more than 0.25 inches of rain in New York City on May 7?",
+      "model_version": "baseline_precip_v1",
+      "p_yes": 0.6,
+      "confidence": "medium",
+      "prediction_created_at": "2026-05-06T12:00:00Z",
+      "actual_outcome": "NO",
+      "actual_value": 0.05,
+      "actual_unit": "inch",
+      "resolved_at": "2026-05-08T02:00:00Z",
+      "features_json": {
+        "forecast_precip_total": 0.4,
+        "forecast_precip_unit": "inch",
+        "threshold_value": 0.25,
+        "threshold_unit": "inch",
+        "operator": ">"
+      },
+      "ev_recommendation": {
+        "market_price_yes": 0.45,
+        "market_price_no": 0.55,
+        "edge_yes": 0.15,
+        "edge_no": -0.15,
+        "ev_yes": 0.15,
+        "ev_no": -0.15,
+        "recommendation": "PAPER_BUY_YES",
+        "paper_position_size": 10.0,
+        "reason": "Seed replay YES edge."
+      },
+      "paper_trade": {
+        "side": "YES",
+        "entry_price": 0.45,
+        "quantity": 10.0,
+        "entry_time": "2026-05-06T12:30:00Z",
+        "status": "OPEN"
+      }
+    }
+  ]
+}

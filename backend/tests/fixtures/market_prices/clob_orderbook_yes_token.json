@@ -1,0 +1,29 @@
+{
+  "market": "0xgammaweather1",
+  "asset_id": "yes-token-1",
+  "timestamp": "2026-05-07T12:00:00Z",
+  "bids": [
+    {
+      "price": "0.48",
+      "size": "1000"
+    },
+    {
+      "price": "0.47",
+      "size": "2500"
+    }
+  ],
+  "asks": [
+    {
+      "price": "0.52",
+      "size": "800"
+    },
+    {
+      "price": "0.53",
+      "size": "1500"
+    }
+  ],
+  "min_order_size": "5",
+  "tick_size": "0.01",
+  "neg_risk": false,
+  "hash": "0xabc123"
+}

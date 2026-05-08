@@ -1,0 +1,13 @@
+{
+  "daily": {
+    "time": ["2026-05-05", "2026-05-06", "2026-05-07"],
+    "precipitation_sum": ["12.7", null, 12.7],
+    "temperature_2m_max": ["70.0", true, 72.0],
+    "temperature_2m_min": [55.0, "not-a-number", "54.0"]
+  },
+  "daily_units": {
+    "precipitation_sum": "mm",
+    "temperature_2m_max": "F",
+    "temperature_2m_min": "F"
+  }
+}

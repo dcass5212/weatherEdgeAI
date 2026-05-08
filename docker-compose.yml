@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: weatheredge-postgres
+    environment:
+      POSTGRES_USER: weatheredge
+      POSTGRES_PASSWORD: weatheredge
+      POSTGRES_DB: weatheredge
+    ports:
+      - "5432:5432"
+    volumes:
+      - weatheredge_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  weatheredge_postgres_data:
+
