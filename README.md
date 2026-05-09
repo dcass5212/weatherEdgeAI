@@ -175,6 +175,7 @@ forecast: forecast_source='demo_fixture', forecast_precip_total=1.6, forecast_pr
 prediction: model_version='baseline_precip_v1', p_yes=0.75, p_no=0.25
 strategy: recommendation='PAPER_BUY_YES', market_price_yes=0.44, edge_yes=0.31
 paper_trade: side='YES', entry_price=0.44, quantity=10.0, status='OPEN'
+market_detail: latest_price_snapshot_id=1, latest_forecast_snapshot_id=1, latest_prediction_id=1, latest_ev_recommendation_id=1, latest_paper_trade_id=1, next_action='monitor_paper_trade'
 ```
 
 Run the deterministic seed-fixture backtest through the API after the server is running:
@@ -208,7 +209,7 @@ The current backend includes SQLAlchemy persistence models, Pydantic response sc
 
 Market discovery now uses the public Polymarket-style Gamma API by default through `POST /markets/discover`. For local demos or tests without network access, pass `"source": "mock"` in the request body.
 
-Market detail reads include a computed `workflow_status` object that shows completed pipeline steps and the next recommended backend action, such as `create_forecast`, `run_prediction`, or `evaluate_strategy`.
+Market detail reads include a computed `workflow_status` object that shows completed pipeline steps and the next recommended backend action, such as `create_forecast`, `run_prediction`, or `evaluate_strategy`. The same detail response exposes the latest parsed market, price snapshot, forecast snapshot, prediction, EV recommendation, and paper trade when present so the paper-trading chain can be inspected from one endpoint.
 
 Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh public source payloads and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, liquidity, volume, status, and resolution fields without enabling authenticated trading.
 

@@ -6,6 +6,9 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Added
 
+- Added latest forecast snapshot and latest paper trade fields to market detail responses.
+- Added `has_paper_trade` and `monitor_paper_trade` workflow status support for markets with simulated trades.
+- Added the new market-detail forecast and paper-trade IDs to the scripted demo output.
 - Added focused tests for capped paper-mode risk sizing, including negative/no edge, fractional edge, max-size caps, invalid max size, and YES/NO strategy integration.
 - Added backtest `coverage_diagnostics` to report candidate predictions, evaluated prediction/outcome pairs, missing outcomes, unmatched resolved outcomes, and model-version exclusions.
 - Added focused backtesting tests for missing-outcome, unmatched-outcome, and mismatched-model diagnostic counts.
@@ -18,6 +21,7 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Changed
 
+- Updated market detail API docs to describe the full latest paper-trading inspection chain.
 - Updated strategy evaluation to use the shared paper risk-sizing helper and include sizing rationale in actionable recommendation reasons.
 - Documented the current paper sizing rule in `docs/API_WORKFLOWS.md`, `docs/TRADING_MODES.md`, `docs/DATA_MODEL.md`, `docs/MODELING_PLAN.md`, and `docs/ROADMAP.md`.
 - Updated `README.md`, `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, and `docs/BACKTESTING_SPEC.md` for backtest coverage diagnostics.
@@ -28,6 +32,7 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_markets.py`; all 13 market API tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_ev.py`; all 17 focused EV and risk-sizing tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_api_provenance.py tests\test_api_markets.py tests\test_ev.py`; all 32 focused API/provenance/EV tests passed.
 - Ran `.\.venv\Scripts\pytest.exe`; all 84 backend tests passed.

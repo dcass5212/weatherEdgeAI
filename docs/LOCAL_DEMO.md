@@ -72,6 +72,7 @@ forecast: id=1, forecast_source='demo_fixture', forecast_precip_total=1.6, forec
 prediction: id=1, model_version='baseline_precip_v1', p_yes=0.75, p_no=0.25
 strategy: id=1, recommendation='PAPER_BUY_YES', market_price_yes=0.44, edge_yes=0.31
 paper_trade: id=1, side='YES', entry_price=0.44, quantity=10.0, status='OPEN'
+market_detail: latest_price_snapshot_id=1, latest_forecast_snapshot_id=1, latest_prediction_id=1, latest_ev_recommendation_id=1, latest_paper_trade_id=1, next_action='monitor_paper_trade'
 ```
 
 For a smoke demo that does not require PostgreSQL, use a temporary in-memory SQLite database:
@@ -241,7 +242,7 @@ Replace `1` with the actual recommendation ID.
 GET http://127.0.0.1:8000/markets/{market_id}
 ```
 
-The market detail response includes `workflow_status`. During a normal demo, `next_action` should advance through `parse_market`, `create_forecast`, `run_prediction`, `evaluate_strategy`, and then `ready_for_paper_trade` as each step completes.
+The market detail response includes `workflow_status` plus the latest parsed market, price snapshot, forecast snapshot, prediction, EV recommendation, and paper trade when present. During a normal demo, `next_action` should advance through `parse_market`, `create_forecast`, `run_prediction`, `evaluate_strategy`, `ready_for_paper_trade`, and then `monitor_paper_trade` after a simulated trade exists.
 
 ```http
 GET http://127.0.0.1:8000/strategy/opportunities

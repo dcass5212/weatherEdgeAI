@@ -49,6 +49,7 @@ Implemented:
 - Stored prediction outputs with model version, feature payload, parsed-market provenance, and forecast-snapshot provenance.
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
 - Market detail workflow status showing completed pipeline steps and the next recommended backend action.
+- Market detail reads expose the latest forecast snapshot and latest paper trade alongside parsed market, price snapshot, prediction, EV recommendation, and workflow status.
 - Paper-trade endpoints.
 - Scripted end-to-end demo workflow for mock discovery, parsing, deterministic forecast snapshot creation, prediction, EV evaluation, and paper-trade creation.
 - README and local demo docs now include architecture flow, expected smoke-demo output, representative seed backtest output, and current observed-outcome boundaries.
@@ -69,6 +70,7 @@ Partially implemented:
 - Polymarket price refresh now calls the public source client for fresh payloads and can combine fresh CLOB token price maps with stored Gamma market context when the fresh response omits outcome and token-id metadata, but broader real response capture and endpoint-shape hardening should continue as unsupported variations are found.
 - Prediction and EV routes use stored inputs and expose the main provenance IDs.
 - Market detail reads expose computed workflow status so reviewers can see whether price refresh, parsing, forecasting, prediction, or strategy evaluation is next.
+- Market detail reads now expose the full latest paper-trading inspection chain, including forecast snapshot and paper trade records.
 - Location resolution has a deterministic fixture geocoder by default, plus an opt-in Open-Meteo geocoding provider for broader manual coverage.
 - Backtesting has an initial replay path for persisted predictions joined to resolved outcomes, plus seed-fixture support, calibration buckets, sample-size reporting, coverage diagnostics, and paper-trade result summaries.
 

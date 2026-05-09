@@ -3,7 +3,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modeling.schemas import PredictionRead
-from app.strategy.schemas import EVRecommendationRead
+from app.strategy.schemas import EVRecommendationRead, PaperTradeRead
+from app.weather.schemas import WeatherForecastSnapshotRead
 
 
 class ParsedMarketResult(BaseModel):
@@ -101,14 +102,17 @@ class MarketWorkflowStatus(BaseModel):
     has_forecast_snapshot: bool = False
     has_prediction: bool = False
     has_ev_recommendation: bool = False
+    has_paper_trade: bool = False
     next_action: str
 
 
 class MarketDetailRead(MarketRead):
     latest_parsed_market: ParsedMarketRead | None = None
     latest_price_snapshot: MarketPriceSnapshotRead | None = None
+    latest_forecast_snapshot: WeatherForecastSnapshotRead | None = None
     latest_prediction: PredictionRead | None = None
     latest_ev_recommendation: EVRecommendationRead | None = None
+    latest_paper_trade: PaperTradeRead | None = None
     workflow_status: MarketWorkflowStatus
 
 

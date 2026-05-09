@@ -129,11 +129,15 @@ def run_demo(client: TestClient, quantity: float) -> None:
 
     detail = _request(client, "GET", f"/markets/{market_id}")
     assert isinstance(detail, dict)
+    latest_trade = detail.get("latest_paper_trade")
     print(
         "market_detail: "
         f"latest_price_snapshot_id={detail['latest_price_snapshot']['id']}, "
+        f"latest_forecast_snapshot_id={detail['latest_forecast_snapshot']['id']}, "
         f"latest_prediction_id={detail['latest_prediction']['id']}, "
-        f"latest_ev_recommendation_id={detail['latest_ev_recommendation']['id']}"
+        f"latest_ev_recommendation_id={detail['latest_ev_recommendation']['id']}, "
+        f"latest_paper_trade_id={latest_trade['id'] if latest_trade else None}, "
+        f"next_action={detail['workflow_status']['next_action']!r}"
     )
 
     opportunities = _request(client, "GET", "/strategy/opportunities", params={"min_edge": 0.03, "limit": 5})

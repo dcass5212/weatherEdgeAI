@@ -234,9 +234,12 @@ Fields:
 - `has_forecast_snapshot`
 - `has_prediction`
 - `has_ev_recommendation`
+- `has_paper_trade`
 - `next_action`
 
-`next_action` is a compact hint for the next backend call: refresh prices, parse the market, create a forecast, run prediction, evaluate strategy, or proceed to paper-trade review.
+`next_action` is a compact hint for the next backend call: refresh prices, parse the market, create a forecast, run prediction, evaluate strategy, proceed to paper-trade creation, or monitor an existing paper trade.
+
+The same response includes the latest parsed market, price snapshot, forecast snapshot, prediction, EV recommendation, and paper trade when those records exist. These are read-time joins for demo and dashboard inspection, not separate aggregate tables.
 
 ## Migration Plan
 

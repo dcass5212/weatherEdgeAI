@@ -16,6 +16,7 @@ from app.db.repositories import (
     get_market,
     latest_forecast_snapshot,
     latest_parsed_market,
+    latest_paper_trade,
     latest_prediction,
     latest_price_snapshot,
     latest_recommendation,
@@ -167,6 +168,7 @@ def _workflow_status(
     has_forecast_snapshot: bool,
     prediction: object | None,
     ev_recommendation: object | None,
+    paper_trade: object | None,
 ) -> MarketWorkflowStatus:
     if price_snapshot is None:
         next_action = "refresh_price_snapshot"
@@ -178,8 +180,10 @@ def _workflow_status(
         next_action = "run_prediction"
     elif ev_recommendation is None:
         next_action = "evaluate_strategy"
-    else:
+    elif paper_trade is None:
         next_action = "ready_for_paper_trade"
+    else:
+        next_action = "monitor_paper_trade"
 
     return MarketWorkflowStatus(
         has_price_snapshot=price_snapshot is not None,
@@ -187,6 +191,7 @@ def _workflow_status(
         has_forecast_snapshot=has_forecast_snapshot,
         has_prediction=prediction is not None,
         has_ev_recommendation=ev_recommendation is not None,
+        has_paper_trade=paper_trade is not None,
         next_action=next_action,
     )
 
@@ -275,17 +280,21 @@ def get_market_detail(market_id: int, db: Session = Depends(get_db)) -> MarketDe
     forecast_snapshot = latest_forecast_snapshot(db, parsed_market.id) if parsed_market else None
     prediction = latest_prediction(db, market_id)
     ev_recommendation = latest_recommendation(db, prediction.id) if prediction else None
+    paper_trade = latest_paper_trade(db, market_id)
     data = MarketRead.model_validate(market).model_dump()
     data["latest_parsed_market"] = parsed_market
     data["latest_price_snapshot"] = price_snapshot
+    data["latest_forecast_snapshot"] = forecast_snapshot
     data["latest_prediction"] = prediction
     data["latest_ev_recommendation"] = ev_recommendation
+    data["latest_paper_trade"] = paper_trade
     data["workflow_status"] = _workflow_status(
         price_snapshot=price_snapshot,
         parsed_market=parsed_market,
         has_forecast_snapshot=forecast_snapshot is not None,
         prediction=prediction,
         ev_recommendation=ev_recommendation,
+        paper_trade=paper_trade,
     )
     return MarketDetailRead.model_validate(data)
 

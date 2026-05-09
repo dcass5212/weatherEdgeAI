@@ -72,6 +72,12 @@ def latest_recommendation(db: Session, prediction_id: int) -> EVRecommendation |
     ).first()
 
 
+def latest_paper_trade(db: Session, market_id: int) -> PaperTrade | None:
+    return db.scalars(
+        select(PaperTrade).where(PaperTrade.market_id == market_id).order_by(PaperTrade.created_at.desc()).limit(1)
+    ).first()
+
+
 def list_paper_trades(db: Session, status: str | None = None, limit: int = 50) -> list[PaperTrade]:
     statement = select(PaperTrade).order_by(PaperTrade.created_at.desc()).limit(limit)
     if status is not None:

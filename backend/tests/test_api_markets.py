@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api import routes_markets
-from app.db.models import EVRecommendation, Market, Prediction, WeatherForecastSnapshot
+from app.db.models import EVRecommendation, Market, PaperTrade, Prediction, WeatherForecastSnapshot
 from app.markets.polymarket_client import PublicMarketDataError
 from app.weather.geocoding import GeocodedLocation
 
@@ -179,6 +179,7 @@ def test_market_detail_workflow_status_walks_pipeline(client: TestClient, db_ses
         "has_forecast_snapshot": False,
         "has_prediction": False,
         "has_ev_recommendation": False,
+        "has_paper_trade": False,
         "next_action": "refresh_price_snapshot",
     }
 
@@ -214,6 +215,8 @@ def test_market_detail_workflow_status_walks_pipeline(client: TestClient, db_ses
     db_session.commit()
 
     forecast_detail = client.get(f"/markets/{market_id}").json()
+    assert forecast_detail["latest_forecast_snapshot"]["id"] == forecast.id
+    assert forecast_detail["latest_forecast_snapshot"]["forecast_precip_total"] == 1.4
     assert forecast_detail["workflow_status"]["has_forecast_snapshot"] is True
     assert forecast_detail["workflow_status"]["has_prediction"] is False
     assert forecast_detail["workflow_status"]["next_action"] == "run_prediction"
@@ -237,24 +240,42 @@ def test_market_detail_workflow_status_walks_pipeline(client: TestClient, db_ses
     assert prediction_detail["workflow_status"]["has_ev_recommendation"] is False
     assert prediction_detail["workflow_status"]["next_action"] == "evaluate_strategy"
 
-    db_session.add(
-        EVRecommendation(
-            prediction_id=prediction.id,
-            market_price_yes=0.44,
-            market_price_no=0.56,
-            edge_yes=0.26,
-            edge_no=-0.26,
-            ev_yes=0.26,
-            ev_no=-0.26,
-            recommendation="PAPER_BUY_YES",
-            paper_position_size=10.0,
-        )
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.44,
+        market_price_no=0.56,
+        edge_yes=0.26,
+        edge_no=-0.26,
+        ev_yes=0.26,
+        ev_no=-0.26,
+        recommendation="PAPER_BUY_YES",
+        paper_position_size=10.0,
     )
+    db_session.add(recommendation)
     db_session.commit()
 
     ready_detail = client.get(f"/markets/{market_id}").json()
     assert ready_detail["workflow_status"]["has_ev_recommendation"] is True
+    assert ready_detail["workflow_status"]["has_paper_trade"] is False
     assert ready_detail["workflow_status"]["next_action"] == "ready_for_paper_trade"
+    assert ready_detail["latest_paper_trade"] is None
+
+    trade = PaperTrade(
+        market_id=market_id,
+        recommendation_id=recommendation.id,
+        side="YES",
+        entry_price=0.44,
+        quantity=10.0,
+        status="OPEN",
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    trade_detail = client.get(f"/markets/{market_id}").json()
+    assert trade_detail["latest_paper_trade"]["id"] == trade.id
+    assert trade_detail["latest_paper_trade"]["side"] == "YES"
+    assert trade_detail["workflow_status"]["has_paper_trade"] is True
+    assert trade_detail["workflow_status"]["next_action"] == "monitor_paper_trade"
 
 
 def test_refresh_polymarket_price_snapshot_fetches_fresh_source_payload(client: TestClient, monkeypatch) -> None:

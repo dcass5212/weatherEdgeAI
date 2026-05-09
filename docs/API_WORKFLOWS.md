@@ -87,10 +87,13 @@ The detail response includes `workflow_status` so clients and reviewers can see 
     "has_forecast_snapshot": false,
     "has_prediction": false,
     "has_ev_recommendation": false,
+    "has_paper_trade": false,
     "next_action": "create_forecast"
   }
 }
 ```
+
+The detail response also includes the latest parsed market, price snapshot, forecast snapshot, prediction, EV recommendation, and paper trade when those records exist. This makes `GET /markets/{market_id}` the compact inspection endpoint for the full paper-trading workflow.
 
 Current `next_action` values:
 
@@ -100,6 +103,7 @@ Current `next_action` values:
 - `run_prediction`
 - `evaluate_strategy`
 - `ready_for_paper_trade`
+- `monitor_paper_trade`
 
 ## Workflow 1A: Refresh A Market Price Snapshot
 
