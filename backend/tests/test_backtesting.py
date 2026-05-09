@@ -1,10 +1,15 @@
 from datetime import datetime, timezone
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.backtesting.outcome_resolver import build_resolved_outcome_from_observations
+from app.backtesting.noaa_client import NoaaCdoClient
+from app.backtesting.outcome_resolver import (
+    build_resolved_outcome_from_observations,
+    resolve_weather_outcome_for_parsed_market,
+)
 from app.backtesting.backtest_runner import BacktestRunner
 from app.backtesting.schemas import BacktestRunRequest
 from app.db.models import EVRecommendation, Market, ParsedMarket, PaperTrade, Prediction, ResolvedOutcome, utc_now
@@ -148,6 +153,69 @@ def test_build_resolved_outcome_rejects_noaa_daily_mixed_prcp_units() -> None:
         )
 
 
+@pytest.mark.anyio
+async def test_noaa_cdo_client_requires_token() -> None:
+    client = NoaaCdoClient(base_url="https://noaa.test", token=None)
+
+    with pytest.raises(ValueError, match="NOAA_CDO_TOKEN is required"):
+        await client.fetch_daily_precipitation(
+            latitude=40.7128,
+            longitude=-74.006,
+            start_date="2026-05-05",
+            end_date="2026-05-05",
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_weather_outcome_from_mocked_noaa_cdo_daily_client() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/data"
+        assert request.headers["token"] == "test-token"
+        assert request.url.params["datasetid"] == "GHCND"
+        assert request.url.params["datatypeid"] == "PRCP"
+        assert request.url.params["units"] == "metric"
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"datatype": "PRCP", "date": "2026-05-05T00:00:00", "station": "GHCND:TEST", "value": 25.4}
+                ]
+            },
+        )
+
+    parsed_market = ParsedMarket(
+        id=12,
+        market_id=34,
+        location_name="New York City",
+        latitude=40.7128,
+        longitude=-74.006,
+        metric="precipitation",
+        operator=">=",
+        threshold_value=1.0,
+        threshold_unit="inch",
+        target_start=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        target_end=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        parser_version="regex_precip_v1",
+        parse_confidence=0.85,
+    )
+
+    outcome = await resolve_weather_outcome_for_parsed_market(
+        parsed_market,
+        provider="noaa_cdo_daily",
+        noaa_client=NoaaCdoClient(
+            base_url="https://noaa.test",
+            token="test-token",
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    assert outcome.actual_outcome == "YES"
+    assert outcome.actual_value == 1.0
+    assert outcome.actual_unit == "inch"
+    assert outcome.resolution_source == "noaa_cdo_daily"
+    assert outcome.raw_json["provider_payload"]["source"] == "noaa_cdo_daily"
+
+
 def test_create_resolved_outcome_route(client: TestClient) -> None:
     create_response = client.post(
         "/markets",
@@ -182,7 +250,7 @@ def test_create_resolved_outcome_route(client: TestClient) -> None:
 
 
 def test_resolve_weather_outcome_route_persists_provider_result(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_resolve_weather_outcome(parsed_market: ParsedMarket) -> ResolvedOutcome:
+    async def fake_resolve_weather_outcome(parsed_market: ParsedMarket, provider: str = "open_meteo_archive") -> ResolvedOutcome:
         return ResolvedOutcome(
             market_id=parsed_market.market_id,
             actual_outcome="NO",
@@ -223,6 +291,43 @@ def test_resolve_weather_outcome_route_persists_provider_result(client: TestClie
     list_response = client.get(f"/backtests/resolved-outcomes?market_id={market_id}")
     list_response.raise_for_status()
     assert len(list_response.json()) == 1
+
+
+def test_resolve_weather_outcome_route_reports_provider_http_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_resolve_weather_outcome(
+        parsed_market: ParsedMarket,
+        provider: str = "open_meteo_archive",
+    ) -> ResolvedOutcome:
+        raise httpx.ConnectError("provider unavailable")
+
+    monkeypatch.setattr(
+        "app.api.routes_backtests.resolve_weather_outcome_for_parsed_market",
+        fake_resolve_weather_outcome,
+    )
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "mock",
+            "source_market_id": "weather-resolve-route-provider-failure",
+            "question": "Will New York City get more than 1 inch of rain on May 5?",
+            "category": "weather",
+        },
+    )
+    create_response.raise_for_status()
+    market_id = create_response.json()["id"]
+    parse_response = client.post(f"/markets/{market_id}/parse")
+    parse_response.raise_for_status()
+
+    response = client.post(
+        "/backtests/resolved-outcomes/resolve-weather",
+        json={"market_id": market_id, "resolution_provider": "noaa_cdo_daily"},
+    )
+
+    assert response.status_code == 502
+    assert "noaa_cdo_daily observed-weather request failed" in response.json()["detail"]
 
 
 def test_backtest_runner_replays_persisted_resolved_predictions(db_session: Session) -> None:
@@ -303,6 +408,106 @@ def test_backtest_runner_replays_persisted_resolved_predictions(db_session: Sess
     assert result.calibration_buckets[3].observed_yes_rate == 1.0
 
 
+def test_backtest_runner_reports_coverage_diagnostics(db_session: Session) -> None:
+    evaluated_market = Market(
+        source="test",
+        source_market_id="coverage-evaluated",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    missing_outcome_market = Market(
+        source="test",
+        source_market_id="coverage-missing-outcome",
+        question="Will Chicago receive at least 0.5 inches of rain tomorrow?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    unmatched_outcome_market = Market(
+        source="test",
+        source_market_id="coverage-unmatched-outcome",
+        question="Will Boston get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    wrong_model_market = Market(
+        source="test",
+        source_market_id="coverage-wrong-model",
+        question="Will Philadelphia get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    db_session.add_all([evaluated_market, missing_outcome_market, unmatched_outcome_market, wrong_model_market])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Prediction(
+                market_id=evaluated_market.id,
+                model_version="baseline_precip_v1",
+                p_yes=0.7,
+                p_no=0.3,
+                confidence="medium",
+            ),
+            Prediction(
+                market_id=missing_outcome_market.id,
+                model_version="baseline_precip_v1",
+                p_yes=0.4,
+                p_no=0.6,
+                confidence="medium",
+            ),
+            Prediction(
+                market_id=wrong_model_market.id,
+                model_version="experimental_precip_v2",
+                p_yes=0.8,
+                p_no=0.2,
+                confidence="medium",
+            ),
+            ResolvedOutcome(
+                market_id=evaluated_market.id,
+                actual_outcome="YES",
+                actual_value=1.2,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            ),
+            ResolvedOutcome(
+                market_id=unmatched_outcome_market.id,
+                actual_outcome="NO",
+                actual_value=0.2,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 3, tzinfo=timezone.utc),
+            ),
+            ResolvedOutcome(
+                market_id=wrong_model_market.id,
+                actual_outcome="YES",
+                actual_value=1.3,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 4, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = BacktestRunner(db_session).run(
+        BacktestRunRequest(start_date="2026-05-01", end_date="2026-05-10", model_version="baseline_precip_v1")
+    )
+
+    assert result.num_predictions == 1
+    assert result.coverage_diagnostics.candidate_prediction_count == 2
+    assert result.coverage_diagnostics.evaluated_prediction_count == 1
+    assert result.coverage_diagnostics.missing_outcome_count == 1
+    assert result.coverage_diagnostics.resolved_outcome_count_in_window == 3
+    assert result.coverage_diagnostics.unmatched_resolved_outcome_count == 2
+    assert result.coverage_diagnostics.excluded_prediction_model_version_count == 1
+
+
 def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     response = client.post(
         "/backtests/run",
@@ -328,6 +533,12 @@ def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     assert body["paper_roi"] == 0.408451
     assert body["max_drawdown"] == 4.5
     assert body["sample_size_note"] == "Very small sample; use metrics only to verify the replay workflow."
+    assert body["coverage_diagnostics"]["candidate_prediction_count"] == 3
+    assert body["coverage_diagnostics"]["evaluated_prediction_count"] == 3
+    assert body["coverage_diagnostics"]["missing_outcome_count"] == 0
+    assert body["coverage_diagnostics"]["resolved_outcome_count_in_window"] == 3
+    assert body["coverage_diagnostics"]["unmatched_resolved_outcome_count"] == 0
+    assert body["coverage_diagnostics"]["excluded_prediction_model_version_count"] == 0
     assert len(body["calibration_buckets"]) == 5
     assert body["calibration_buckets"][2]["count"] == 1
     assert body["calibration_buckets"][2]["average_predicted_probability"] == 0.4

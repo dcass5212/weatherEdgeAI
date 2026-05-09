@@ -127,9 +127,50 @@ Representative seed-fixture values:
 }
 ```
 
+## Optional NOAA Outcome Resolution
+
+The local demo does not require NOAA. Use this only for manual observed-outcome experiments after a market has been parsed and has coordinates plus target dates.
+
+Configure `.env`:
+
+```env
+NOAA_CDO_BASE_URL=https://www.ncei.noaa.gov/cdo-web/api/v2
+NOAA_CDO_TOKEN=your_token_here
+```
+
+Resolve a parsed market with NOAA/NCEI CDO daily precipitation:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/backtests/resolved-outcomes/resolve-weather `
+  -ContentType "application/json" `
+  -Body '{"market_id":1,"resolution_provider":"noaa_cdo_daily"}'
+```
+
+Then inspect the persisted outcome:
+
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri http://127.0.0.1:8000/backtests/resolved-outcomes?market_id=1
+```
+
+Open-Meteo remains the default:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/backtests/resolved-outcomes/resolve-weather `
+  -ContentType "application/json" `
+  -Body '{"market_id":1}'
+```
+
 ## Demo Sequence
 
 Use mock discovery for deterministic local review.
+
+Mock discovery creates deterministic market price snapshots. Manually created markets do not receive demo prices during parsing; use discovery or the explicit price refresh endpoint before strategy evaluation.
 
 ### 1. Discover Markets
 
@@ -200,6 +241,8 @@ Replace `1` with the actual recommendation ID.
 GET http://127.0.0.1:8000/markets/{market_id}
 ```
 
+The market detail response includes `workflow_status`. During a normal demo, `next_action` should advance through `parse_market`, `create_forecast`, `run_prediction`, `evaluate_strategy`, and then `ready_for_paper_trade` as each step completes.
+
 ```http
 GET http://127.0.0.1:8000/strategy/opportunities
 ```
@@ -227,7 +270,7 @@ Content-Type: application/json
 - Paper trading is the default execution mode.
 - No real order should be placed during this demo.
 - Public market discovery can be demonstrated later, but mock discovery is preferred for reliable portfolio review.
-- Observed-weather resolution is implemented for Open-Meteo archive precipitation markets and fixture/manual NOAA/NCEI CDO-style `PRCP` payloads.
-- A live credential-gated NOAA/NWS observed-weather client is planned later and is not required for this demo.
+- Observed-weather resolution is implemented for Open-Meteo archive precipitation markets and optional credential-gated NOAA/NCEI CDO daily `PRCP` observations.
+- NOAA/NCEI CDO requires `NOAA_CDO_TOKEN`, is mocked in tests, and is not required for this demo.
 - Backtest seed fixtures are intentionally small; use them to demonstrate replay mechanics, not trading performance.
 - Before portfolio review, verify `.\.venv\Scripts\pytest.exe` passes with PostgreSQL running through Docker Compose and migrations applied.

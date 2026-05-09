@@ -46,11 +46,14 @@ Current initial implementation:
 
 - `POST /backtests/resolved-outcomes` stores manually supplied YES/NO resolved outcomes.
 - `GET /backtests/resolved-outcomes` lists stored outcomes, optionally filtered by market.
-- `POST /backtests/resolved-outcomes/resolve-weather` resolves a parsed precipitation market from Open-Meteo archive daily observed precipitation and stores a source-attributed outcome.
-- The observed-weather resolver can also normalize NOAA/NCEI CDO-style daily `PRCP` records when supplied through fixture or manual provider payloads with explicit precipitation units.
+- `POST /backtests/resolved-outcomes/resolve-weather` resolves a parsed precipitation market from observed daily precipitation and stores a source-attributed outcome.
+- Open-Meteo archive remains the default observed-weather provider.
+- The observed-weather resolver can normalize NOAA/NCEI CDO-style daily `PRCP` records with explicit precipitation units.
+- `resolution_provider: "noaa_cdo_daily"` uses the credential-gated NOAA/NCEI CDO client when `NOAA_CDO_TOKEN` is configured. Missing credentials fail before any provider request.
 - `POST /backtests/run` replays persisted predictions joined to resolved outcomes for a model version and date window.
 - `seed_fixtures: true` inserts and replays a deterministic small fixture history.
 - The initial report includes prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, a sample-size note, EV recommendation count, paper-trade count, paper PnL, paper ROI, and max drawdown.
+- Backtest responses include `coverage_diagnostics` so skipped or unevaluated records are visible. The diagnostics report candidate predictions for the selected model, evaluated prediction/outcome pairs, predictions missing outcomes in the requested window, resolved outcomes without matching selected-model predictions, and predictions excluded because they belong to another model version.
 
 ## Metrics
 
@@ -66,6 +69,7 @@ Backtest reports should include:
 - Paper-trade count. Implemented for trades linked to recommendations from the selected model version.
 - Paper ROI. Implemented as settlement PnL divided by entry cost.
 - Max drawdown when enough trade history exists. Implemented over ordered settlement PnL.
+- Coverage diagnostics. Implemented for missing outcomes, unmatched outcomes, and model-version exclusions.
 
 ## Calibration Buckets
 
@@ -109,6 +113,6 @@ Backtesting tests should cover:
 - Calibration bucket assignment. Implemented.
 - Replay with a small deterministic fixture. Implemented.
 - Paper-trade settlement summary. Implemented.
-- Handling missing outcomes.
-- Handling mismatched model versions.
-- Observed-weather outcome resolution from fixture or mocked provider payloads. Initial Open-Meteo archive precipitation coverage is implemented, and NOAA/NCEI CDO-style daily `PRCP` normalization is covered for valid, missing-unit, and mixed-unit payloads.
+- Handling missing outcomes. Implemented through coverage diagnostics tests.
+- Handling mismatched model versions. Implemented through coverage diagnostics tests.
+- Observed-weather outcome resolution from fixture or mocked provider payloads. Initial Open-Meteo archive precipitation coverage is implemented, and NOAA/NCEI CDO-style daily `PRCP` normalization is covered for valid, missing-unit, mixed-unit, missing-token, mocked-success, and provider-failure cases.

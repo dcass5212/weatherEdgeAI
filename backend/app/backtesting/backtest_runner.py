@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.backtesting.schemas import BacktestRunRequest, BacktestRunResponse, CalibrationBucket
+from app.backtesting.schemas import BacktestCoverageDiagnostics, BacktestRunRequest, BacktestRunResponse, CalibrationBucket
 from app.db.models import EVRecommendation, Market, PaperTrade, Prediction, ResolvedOutcome, utc_now
 from app.modeling.calibration import calibration_summary
 from app.modeling.metrics import brier_score
@@ -138,6 +138,7 @@ class BacktestRunner:
             self._seed_fixture_records()
 
         rows = self._load_replay_rows(payload)
+        coverage_diagnostics = self._coverage_diagnostics(payload, evaluated_prediction_count=len(rows))
         ev_recommendation_count = self._count_ev_recommendations(payload)
         paper_summary = _paper_trade_summary(self._load_paper_trade_rows(payload))
         if not rows:
@@ -145,6 +146,7 @@ class BacktestRunner:
                 model_version=payload.model_version,
                 num_predictions=0,
                 num_resolved_outcomes=0,
+                coverage_diagnostics=coverage_diagnostics,
                 ev_recommendation_count=ev_recommendation_count,
                 paper_trade_count=paper_summary.paper_trade_count,
                 paper_total_pnl=paper_summary.paper_total_pnl,
@@ -161,6 +163,7 @@ class BacktestRunner:
             model_version=payload.model_version,
             num_predictions=len(rows),
             num_resolved_outcomes=len(rows),
+            coverage_diagnostics=coverage_diagnostics,
             ev_recommendation_count=ev_recommendation_count,
             paper_trade_count=paper_summary.paper_trade_count,
             win_rate=_win_rate(rows),
@@ -194,6 +197,66 @@ class BacktestRunner:
             )
             for prediction, outcome in self.db.execute(statement).all()
         ]
+
+    def _coverage_diagnostics(
+        self,
+        payload: BacktestRunRequest,
+        evaluated_prediction_count: int,
+    ) -> BacktestCoverageDiagnostics:
+        start, end = _date_window(payload.start_date, payload.end_date)
+
+        candidate_prediction_ids = set(
+            self.db.scalars(select(Prediction.id).where(Prediction.model_version == payload.model_version)).all()
+        )
+        markets_with_matching_predictions = set(
+            self.db.scalars(select(Prediction.market_id).where(Prediction.model_version == payload.model_version)).all()
+        )
+
+        resolved_market_ids_in_window = set(
+            self.db.scalars(
+                select(ResolvedOutcome.market_id)
+                .where(ResolvedOutcome.resolved_at.is_not(None))
+                .where(ResolvedOutcome.resolved_at >= start)
+                .where(ResolvedOutcome.resolved_at <= end)
+            ).all()
+        )
+        resolved_outcome_ids_in_window = set(
+            self.db.scalars(
+                select(ResolvedOutcome.id)
+                .where(ResolvedOutcome.resolved_at.is_not(None))
+                .where(ResolvedOutcome.resolved_at >= start)
+                .where(ResolvedOutcome.resolved_at <= end)
+            ).all()
+        )
+        prediction_ids_with_window_outcomes = set(
+            self.db.scalars(
+                select(Prediction.id)
+                .join(ResolvedOutcome, ResolvedOutcome.market_id == Prediction.market_id)
+                .where(Prediction.model_version == payload.model_version)
+                .where(ResolvedOutcome.resolved_at.is_not(None))
+                .where(ResolvedOutcome.resolved_at >= start)
+                .where(ResolvedOutcome.resolved_at <= end)
+            ).all()
+        )
+        excluded_prediction_ids = set(
+            self.db.scalars(
+                select(Prediction.id)
+                .join(ResolvedOutcome, ResolvedOutcome.market_id == Prediction.market_id)
+                .where(Prediction.model_version != payload.model_version)
+                .where(ResolvedOutcome.resolved_at.is_not(None))
+                .where(ResolvedOutcome.resolved_at >= start)
+                .where(ResolvedOutcome.resolved_at <= end)
+            ).all()
+        )
+
+        return BacktestCoverageDiagnostics(
+            candidate_prediction_count=len(candidate_prediction_ids),
+            evaluated_prediction_count=evaluated_prediction_count,
+            missing_outcome_count=len(candidate_prediction_ids - prediction_ids_with_window_outcomes),
+            resolved_outcome_count_in_window=len(resolved_outcome_ids_in_window),
+            unmatched_resolved_outcome_count=len(resolved_market_ids_in_window - markets_with_matching_predictions),
+            excluded_prediction_model_version_count=len(excluded_prediction_ids),
+        )
 
     def _count_ev_recommendations(self, payload: BacktestRunRequest) -> int:
         start, end = _date_window(payload.start_date, payload.end_date)

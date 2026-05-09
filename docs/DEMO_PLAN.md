@@ -264,7 +264,7 @@ The key design choice is snapshotting. Market prices, weather forecasts, predict
 
 ## Current Demo Limitations
 
-- Backtesting currently uses persisted outcomes or deterministic seed fixtures for reliable demos. Open-Meteo archive outcome resolution is implemented for parsed precipitation markets, and fixture/manual NOAA/NCEI CDO-style `PRCP` normalization is implemented; a live credential-gated NOAA/NWS client is planned later.
+- Backtesting currently uses persisted outcomes or deterministic seed fixtures for reliable demos. Open-Meteo archive outcome resolution is implemented for parsed precipitation markets, and an optional credential-gated NOAA/NCEI CDO daily `PRCP` client is available for manual outcome resolution when `NOAA_CDO_TOKEN` is configured.
 - Parser support is limited to V1 precipitation threshold wording, with clearer failures for unsupported questions, missing thresholds, and unsupported units.
 - Location support uses a deterministic fixture geocoder for a few demo cities and should later add a broader provider.
 - Forecast normalization has initial fixture-backed edge-case coverage and should continue expanding with captured provider payloads.

@@ -22,6 +22,7 @@ class ResolvedOutcomeCreate(BaseModel):
 
 class WeatherOutcomeResolveRequest(BaseModel):
     market_id: int
+    resolution_provider: str = Field(default="open_meteo_archive", pattern="^(open_meteo_archive|noaa_cdo_daily)$")
 
 
 class ResolvedOutcomeRead(BaseModel):
@@ -47,10 +48,20 @@ class CalibrationBucket(BaseModel):
     calibration_gap: float | None = None
 
 
+class BacktestCoverageDiagnostics(BaseModel):
+    candidate_prediction_count: int = 0
+    evaluated_prediction_count: int = 0
+    missing_outcome_count: int = 0
+    resolved_outcome_count_in_window: int = 0
+    unmatched_resolved_outcome_count: int = 0
+    excluded_prediction_model_version_count: int = 0
+
+
 class BacktestRunResponse(BaseModel):
     model_version: str
     num_predictions: int
     num_resolved_outcomes: int = 0
+    coverage_diagnostics: BacktestCoverageDiagnostics = Field(default_factory=BacktestCoverageDiagnostics)
     ev_recommendation_count: int = 0
     paper_trade_count: int = 0
     win_rate: float | None = None

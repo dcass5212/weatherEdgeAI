@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.markets.market_discovery import (
@@ -10,6 +11,7 @@ from app.markets.market_discovery import (
     normalize_polymarket_market,
     normalize_price_snapshot,
 )
+from app.markets.polymarket_client import PolymarketClient, PublicMarketDataError
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "market_prices"
@@ -145,6 +147,71 @@ def test_source_diagnostics_report_unparseable_price_fields_with_liquidity() -> 
     assert diagnostics["capabilities"]["prices"] is False
     assert diagnostics["capabilities"]["liquidity"] is True
     assert diagnostics["unsupported_reasons"] == ["price_fields_not_parseable", "missing_binary_yes_no_prices"]
+
+
+@pytest.mark.anyio
+async def test_polymarket_client_retries_rate_limited_public_requests() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(200, json=[{"id": "weather-1", "question": "Will it rain?"}])
+
+    client = PolymarketClient(
+        gamma_base_url="https://gamma.test",
+        max_retries=1,
+        transport=httpx.MockTransport(handler),
+    )
+
+    events = await client.fetch_active_events()
+
+    assert calls == 2
+    assert events == [{"id": "weather-1", "question": "Will it rain?"}]
+
+
+@pytest.mark.anyio
+async def test_polymarket_client_reports_rate_limit_after_retry_budget() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": "rate limited"})
+
+    client = PolymarketClient(
+        gamma_base_url="https://gamma.test",
+        max_retries=1,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(PublicMarketDataError) as exc_info:
+        await client.fetch_active_events()
+
+    error = exc_info.value
+    assert error.reason == "rate_limited"
+    assert error.status_code == 429
+    assert error.attempts == 2
+    assert error.retryable is True
+
+
+@pytest.mark.anyio
+async def test_polymarket_client_reports_malformed_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{not-json")
+
+    client = PolymarketClient(
+        gamma_base_url="https://gamma.test",
+        max_retries=1,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(PublicMarketDataError) as exc_info:
+        await client.fetch_active_events()
+
+    error = exc_info.value
+    assert error.reason == "malformed_json"
+    assert error.status_code == 200
+    assert error.attempts == 1
+    assert error.retryable is False
 
 
 @pytest.mark.anyio

@@ -20,7 +20,7 @@ Paper trading must be implemented first and remain the default mode for local de
 
 ## Current Project Status
 
-The project is currently around Phase 5 in feature shape. Phase 1 persistence is implemented and verified with Alembic, Docker Compose, and local PostgreSQL. Phases 2-4 have a working end-to-end paper-trading research flow. Phase 5 now has initial resolved-outcome replay, calibration buckets, sample-size reporting, paper-trade replay summaries, and Open-Meteo archive observed-weather outcome resolution, but still needs broader provider coverage and portfolio polish before it is portfolio-ready.
+The project is currently around Phase 5 in feature shape. Phase 1 persistence is implemented and verified with Alembic, Docker Compose, and local PostgreSQL. Phases 2-4 have a working end-to-end paper-trading research flow. Phase 5 now has initial resolved-outcome replay, calibration buckets, sample-size reporting, coverage diagnostics, paper-trade replay summaries, and Open-Meteo archive observed-weather outcome resolution, but still needs broader provider coverage and portfolio polish before it is portfolio-ready.
 
 Implemented:
 
@@ -34,6 +34,8 @@ Implemented:
 - `POST /markets/{market_id}/price-snapshots/refresh` for read-only price snapshot refresh from fresh public source payloads on Polymarket markets, with stored-payload support for manual or fixture-backed markets.
 - Source-aware price normalization for mock, common Polymarket-style market fields, token outcome fields, CLOB token price maps, and orderbook-like bid/ask payloads.
 - Market-level source diagnostics for supported, partial, and unsupported public market payloads.
+- Public market-data request retry handling with persisted diagnostics for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts during price refresh.
+- Parse route no longer creates demo fallback price snapshots; price provenance now comes from discovery or explicit refresh.
 - Event-level weather context matching for Polymarket-style discovery when child market questions rely on parent event metadata.
 - Fixture-backed diagnostics for malformed Gamma-style price fields that still expose usable liquidity or volume fields.
 - Expanded rule-based precipitation parser coverage for common threshold wording.
@@ -46,16 +48,19 @@ Implemented:
 - Baseline precipitation probability model.
 - Stored prediction outputs with model version, feature payload, parsed-market provenance, and forecast-snapshot provenance.
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
+- Market detail workflow status showing completed pipeline steps and the next recommended backend action.
 - Paper-trade endpoints.
 - Scripted end-to-end demo workflow for mock discovery, parsing, deterministic forecast snapshot creation, prediction, EV evaluation, and paper-trade creation.
 - README and local demo docs now include architecture flow, expected smoke-demo output, representative seed backtest output, and current observed-outcome boundaries.
 - Resolved outcome create/list endpoints.
 - Open-Meteo archive observed precipitation resolver that creates source-attributed resolved outcomes from the latest parsed market.
 - NOAA/NCEI CDO-style daily `PRCP` observed precipitation normalization for fixture/manual provider payloads with explicit units.
+- Credential-gated NOAA/NCEI CDO daily precipitation client behind the observed-outcome resolver, with mocked tests and Open-Meteo remaining the default demo path.
 - Minimal backtest replay over persisted resolved predictions.
 - Deterministic seed-fixture backtest replay for local demos and tests.
 - Backtest win rate, Brier score, log loss, calibration buckets, and sample-size notes.
 - Backtest EV recommendation counts and paper-trade PnL, ROI, and max-drawdown summaries.
+- Backtest coverage diagnostics for missing outcomes, unmatched outcomes, and model-version exclusions.
 - Passing backend test suite.
 
 Partially implemented:
@@ -63,15 +68,16 @@ Partially implemented:
 - Real public market price coverage has fixture coverage and persisted diagnostics for several documented shapes, including event-wrapped weather markets and malformed Gamma-style price fields, but should keep expanding as unsupported source response variations are captured.
 - Polymarket price refresh now calls the public source client for fresh payloads and can combine fresh CLOB token price maps with stored Gamma market context when the fresh response omits outcome and token-id metadata, but broader real response capture and endpoint-shape hardening should continue as unsupported variations are found.
 - Prediction and EV routes use stored inputs and expose the main provenance IDs.
+- Market detail reads expose computed workflow status so reviewers can see whether price refresh, parsing, forecasting, prediction, or strategy evaluation is next.
 - Location resolution has a deterministic fixture geocoder by default, plus an opt-in Open-Meteo geocoding provider for broader manual coverage.
-- Backtesting has an initial replay path for persisted predictions joined to resolved outcomes, plus seed-fixture support, calibration buckets, sample-size reporting, and paper-trade result summaries.
+- Backtesting has an initial replay path for persisted predictions joined to resolved outcomes, plus seed-fixture support, calibration buckets, sample-size reporting, coverage diagnostics, and paper-trade result summaries.
 
 Known gaps:
 
 - Deterministic fixture geocoding remains the default for local demos and tests. Open-Meteo geocoding is available as an opt-in provider, but captured edge-case coverage should continue expanding.
 - Parser failure detail exists for common unsupported cases, but should keep improving as real unsupported market questions are captured.
-- Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including split fresh-price and stored-market-context refreshes, but more real response captures should be added as integration gaps are found.
-- Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization exists for fixture/manual records, but a live credential-gated NOAA/NWS client is not implemented.
+- Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including split fresh-price and stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
+- Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
 - No frontend/dashboard.
 
 ## Phase 1: Persistence Foundation
@@ -126,7 +132,8 @@ Remaining work:
 
 - Continue adding captured real market fixture payloads for unsupported public price response variations and verify the stored diagnostics stay useful. Initial event-wrapped weather and malformed price-field fixtures are covered.
 - Continue hardening market price snapshots during discovery and through the dedicated refresh endpoint as new fixtures reveal gaps.
-- Remove or further isolate the parse-route demo fallback that creates a mock price snapshot for manually seeded markets.
+- Continue expanding public-source failure fixtures beyond the initial rate-limit, malformed JSON, and malformed payload coverage.
+- Remove or further isolate the parse-route demo fallback that creates a mock price snapshot for manually seeded markets. Done; parsing no longer creates price snapshots.
 - Continue expanding parsing coverage as unsupported real market questions are captured.
 - Continue refining parser failure reasons from observed failures.
 
@@ -199,7 +206,7 @@ Already present:
 Remaining work:
 
 - Continue improving route responses for demo readability where the scripted workflow reveals gaps.
-- Add simple risk sizing documentation and tests.
+- Add simple risk sizing documentation and tests. Done for the current capped paper-mode sizing rule.
 - Add a single scripted workflow that runs discovery, parsing, forecast, prediction, EV evaluation, and paper-trade creation. Done for the deterministic local route workflow.
 - Add documentation explaining baseline model assumptions and limitations.
 
@@ -229,16 +236,17 @@ Work:
 - Compute Brier score and log loss. Initial report fields are implemented.
 - Add win rate, prediction count, and simple paper-trading result summaries. Initial win rate, prediction count, EV recommendation count, paper PnL, paper ROI, and max drawdown are implemented.
 - Add calibration bucket reporting. Initial calibration buckets are implemented.
+- Add coverage diagnostics for skipped or unevaluated records. Initial missing-outcome, unmatched-outcome, and model-version exclusion diagnostics are implemented.
 - Create seed fixtures that make backtesting demonstrable without waiting for real historical accumulation. Initial seed replay fixture is implemented.
 - Add tests for metric calculations and at least one replay scenario. Initial resolved-outcome and replay tests are implemented.
 - Add external observed-outcome integration. Initial Open-Meteo archive precipitation resolution is implemented with fixture/mocked tests.
 - Add broader provider normalization for observed outcomes. Initial NOAA/NCEI CDO-style daily `PRCP` fixture/manual payload normalization is implemented.
-- Later, add a credential-gated NOAA/NWS observed-weather client behind the resolver interface, with mocked tests and clear provider-error diagnostics. Do not require NOAA credentials for local demos or the default test path.
+- Add a credential-gated NOAA/NWS observed-weather client behind the resolver interface, with mocked tests and clear provider-error diagnostics. Initial NOAA/NCEI CDO daily precipitation client is implemented and remains optional. Do not require NOAA credentials for local demos or the default test path.
 
 Done when:
 
 - Backtests operate on persisted historical-like records or seed fixtures.
-- Reports include prediction count, win rate, Brier score, log loss, and calibration summary.
+- Reports include prediction count, win rate, Brier score, log loss, calibration summary, and coverage diagnostics.
 - The backtest output is suitable for a portfolio demo.
 - Tests cover metrics and replay behavior.
 
@@ -260,7 +268,7 @@ Work:
 - Expand explicit source capability handling for markets, prices, liquidity, volume, status, and resolution metadata. Initial persisted diagnostics are implemented.
 - Add source refresh endpoints or jobs for market metadata and price snapshots. Initial read-only price refresh from fresh public Polymarket-style payloads is implemented, including stored market-context merging for token-only price responses.
 - Store provider errors and unsupported-market reasons in a debuggable way. Initial unsupported price reasons are persisted on markets.
-- Add rate-limit and retry behavior appropriate for public data access.
+- Add rate-limit and retry behavior appropriate for public data access. Initial client retry handling and route-level persisted diagnostics are implemented for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts.
 - Add tests using captured fixture payloads, not live network calls.
 - Document what real market data is used and which live-execution capabilities are intentionally not enabled yet.
 

@@ -150,6 +150,17 @@ Secondary metrics:
 - Max drawdown for paper trades.
 - Recommendation hit rate by bucket.
 
+## Paper Strategy Sizing
+
+Current EV recommendations use a simple paper-mode sizing rule:
+
+- Only actionable positive edges receive a suggested size.
+- Size equals edge percentage points, capped at 10 simulated units.
+- A 3.5 percentage-point edge suggests 3.5 units.
+- A 31 percentage-point edge is capped at 10 units.
+
+This exists to make paper-trading records deterministic and reviewable. It is not a live-execution risk model and should not be presented as evidence of trading performance.
+
 Avoid overemphasizing:
 
 - Raw accuracy without probability context.

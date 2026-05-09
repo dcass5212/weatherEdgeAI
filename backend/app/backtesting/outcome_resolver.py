@@ -9,6 +9,7 @@ from datetime import date
 from typing import Any
 
 from app.db.models import ParsedMarket, ResolvedOutcome, utc_now
+from app.backtesting.noaa_client import NoaaCdoClient
 from app.weather.open_meteo_client import OpenMeteoArchiveClient
 
 
@@ -174,7 +175,9 @@ def build_resolved_outcome_from_observations(
 
 async def resolve_weather_outcome_for_parsed_market(
     parsed_market: ParsedMarket,
+    provider: str = "open_meteo_archive",
     client: OpenMeteoArchiveClient | None = None,
+    noaa_client: NoaaCdoClient | None = None,
 ) -> ResolvedOutcome:
     if parsed_market.latitude is None or parsed_market.longitude is None:
         raise ValueError("parsed market must include latitude and longitude before resolving observed weather")
@@ -183,10 +186,22 @@ async def resolve_weather_outcome_for_parsed_market(
 
     start_date = _date_string(parsed_market.target_start)
     end_date = _date_string(parsed_market.target_end or parsed_market.target_start)
-    raw_observations = await (client or OpenMeteoArchiveClient()).fetch_daily_observations(
-        latitude=parsed_market.latitude,
-        longitude=parsed_market.longitude,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    return build_resolved_outcome_from_observations(parsed_market, raw_observations)
+    if provider == "open_meteo_archive":
+        raw_observations = await (client or OpenMeteoArchiveClient()).fetch_daily_observations(
+            latitude=parsed_market.latitude,
+            longitude=parsed_market.longitude,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return build_resolved_outcome_from_observations(parsed_market, raw_observations, resolution_source=provider)
+
+    if provider == "noaa_cdo_daily":
+        raw_observations = await (noaa_client or NoaaCdoClient()).fetch_daily_precipitation(
+            latitude=parsed_market.latitude,
+            longitude=parsed_market.longitude,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return build_resolved_outcome_from_observations(parsed_market, raw_observations, resolution_source=provider)
+
+    raise ValueError(f"unsupported observed-weather resolution provider: {provider}")

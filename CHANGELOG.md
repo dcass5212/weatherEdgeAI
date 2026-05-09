@@ -2,10 +2,47 @@
 
 All notable Codex-assisted changes to WeatherEdge AI are documented here after each implementation prompt.
 
+## 2026-05-09
+
+### Added
+
+- Added focused tests for capped paper-mode risk sizing, including negative/no edge, fractional edge, max-size caps, invalid max size, and YES/NO strategy integration.
+- Added backtest `coverage_diagnostics` to report candidate predictions, evaluated prediction/outcome pairs, missing outcomes, unmatched resolved outcomes, and model-version exclusions.
+- Added focused backtesting tests for missing-outcome, unmatched-outcome, and mismatched-model diagnostic counts.
+- Added a regression test proving market parsing no longer creates demo fallback price snapshots for manually seeded markets.
+- Added computed `workflow_status` to market detail responses, including completed pipeline booleans and `next_action`.
+- Added route coverage for market workflow status as the pipeline advances from price discovery through paper-trade readiness.
+- Added optional `noaa_cdo_daily` observed-weather resolution provider behind the existing resolver interface.
+- Added `NoaaCdoClient` with `NOAA_CDO_TOKEN` gating, mocked daily `PRCP` success coverage, and provider-failure handling tests.
+- Added `NOAA_CDO_BASE_URL` and optional `NOAA_CDO_TOKEN` settings.
+
+### Changed
+
+- Updated strategy evaluation to use the shared paper risk-sizing helper and include sizing rationale in actionable recommendation reasons.
+- Documented the current paper sizing rule in `docs/API_WORKFLOWS.md`, `docs/TRADING_MODES.md`, `docs/DATA_MODEL.md`, `docs/MODELING_PLAN.md`, and `docs/ROADMAP.md`.
+- Updated `README.md`, `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, and `docs/BACKTESTING_SPEC.md` for backtest coverage diagnostics.
+- Updated `.env.example`, `README.md`, `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, `docs/BACKTESTING_SPEC.md`, `docs/DATA_SOURCES.md`, `docs/LOCAL_DEMO.md`, and `docs/TECHNICAL_DECISIONS.md` for optional credential-gated NOAA CDO observed-outcome resolution.
+- Expanded NOAA outcome-resolution documentation with concrete request bodies, environment setup, failure modes, local demo commands, and current station-selection limitations.
+- Removed the parse-route demo price fallback so price snapshots come from discovery or explicit refresh, then updated `README.md`, `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, `docs/DATA_MODEL.md`, and `docs/LOCAL_DEMO.md`.
+- Updated `README.md`, `docs/API_WORKFLOWS.md`, `docs/DATA_MODEL.md`, `docs/LOCAL_DEMO.md`, and `docs/ROADMAP.md` for market detail workflow status.
+
+### Verified
+
+- Ran `.\.venv\Scripts\pytest.exe tests\test_ev.py`; all 17 focused EV and risk-sizing tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_provenance.py tests\test_api_markets.py tests\test_ev.py`; all 32 focused API/provenance/EV tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 84 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 10 focused backtesting tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 13 focused backtesting tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_markets.py tests\test_api_provenance.py tests\test_ev.py`; all 20 focused API/provenance/EV tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_markets.py`; all 13 market API tests passed.
+
 ## 2026-05-08
 
 ### Added
 
+- Added structured public market-data errors for Polymarket-style requests, including endpoint, reason, retry attempts, HTTP status code, and retryable flag.
+- Added retry handling for public Polymarket-style market-data requests, including rate-limit and transient HTTP status retries.
+- Added focused tests for rate-limit retry success, exhausted rate-limit failures, malformed JSON failures, and persisted rate-limit diagnostics on price refresh.
 - Added optional Open-Meteo geocoding support behind the existing geocoding adapter.
 - Added `OPEN_METEO_GEOCODING_BASE_URL` and `GEOCODING_PROVIDER` settings, with fixture geocoding remaining the default.
 - Added focused tests for fixture-first geocoding, Open-Meteo geocoding normalization, empty provider results, and route-level external geocoding enrichment.
@@ -23,6 +60,8 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Changed
 
+- Updated Polymarket price refresh failure diagnostics to persist structured `public_source_error` context alongside `source_refresh_failed`.
+- Updated `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, and `docs/DATA_SOURCES.md` for public market-data retry and failure-diagnostic behavior.
 - Updated market parsing to call the async geocoding resolver and surface external geocoding provider failures as `502` errors when the provider is enabled.
 - Updated `.env.example`, `README.md`, `docs/ROADMAP.md`, `docs/API_WORKFLOWS.md`, `docs/DATA_SOURCES.md`, `docs/LOCAL_DEMO.md`, and `docs/TECHNICAL_DECISIONS.md` for optional broad geocoding.
 - Updated `POST /markets/{market_id}/price-snapshots/refresh` so Polymarket markets fetch a fresh public payload before persisting a new immutable price snapshot, while manual or fixture-backed markets keep stored-payload refresh support.
@@ -43,6 +82,8 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py`; all 24 focused market tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 67 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_geocoding.py tests\test_api_markets.py`; all 15 focused geocoding and market API tests passed.
 - Ran `.\.venv\Scripts\pytest.exe`; all 62 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_api_markets.py tests\test_market_discovery.py`; all 17 focused market tests passed.

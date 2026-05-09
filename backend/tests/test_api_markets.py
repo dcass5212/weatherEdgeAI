@@ -1,9 +1,13 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.api import routes_markets
+from app.db.models import EVRecommendation, Market, Prediction, WeatherForecastSnapshot
+from app.markets.polymarket_client import PublicMarketDataError
 from app.weather.geocoding import GeocodedLocation
 
 
@@ -47,6 +51,27 @@ def test_parse_seeded_market(client: TestClient) -> None:
     assert body["latitude"] == 40.7128
     assert body["longitude"] == -74.006
     assert body["raw_parse_json"]["geocoding"]["source"] == "fixture"
+
+
+def test_parse_seeded_market_does_not_create_demo_price_snapshot(client: TestClient) -> None:
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "manual",
+            "source_market_id": "seeded-market-no-price-snapshot",
+            "question": "Will New York City get more than 1 inch of rain on May 5?",
+            "category": "weather",
+        },
+    )
+    assert create_response.status_code == 201
+    market_id = create_response.json()["id"]
+
+    parse_response = client.post(f"/markets/{market_id}/parse")
+    assert parse_response.status_code == 200
+
+    detail_response = client.get(f"/markets/{market_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["latest_price_snapshot"] is None
 
 
 def test_parse_seeded_market_keeps_unknown_location_without_coordinates(client: TestClient) -> None:
@@ -132,6 +157,104 @@ def test_discover_mock_markets_persists_price_snapshot(client: TestClient) -> No
     diagnostics = detail_response.json()["source_diagnostics"]
     assert diagnostics["price_status"] == "supported"
     assert diagnostics["capabilities"]["prices"] is True
+
+
+def test_market_detail_workflow_status_walks_pipeline(client: TestClient, db_session: Session) -> None:
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "manual",
+            "source_market_id": "workflow-status-manual",
+            "question": "Will New York City get more than 1 inch of rain on May 5?",
+            "category": "weather",
+        },
+    )
+    assert create_response.status_code == 201
+    manual_market_id = create_response.json()["id"]
+
+    manual_detail = client.get(f"/markets/{manual_market_id}").json()
+    assert manual_detail["workflow_status"] == {
+        "has_price_snapshot": False,
+        "has_parsed_market": False,
+        "has_forecast_snapshot": False,
+        "has_prediction": False,
+        "has_ev_recommendation": False,
+        "next_action": "refresh_price_snapshot",
+    }
+
+    discover_response = client.post("/markets/discover", json={"source": "mock", "keywords": ["rain"], "limit": 1})
+    assert discover_response.status_code == 200
+    market_id = client.get("/markets").json()[0]["id"]
+
+    price_only_detail = client.get(f"/markets/{market_id}").json()
+    assert price_only_detail["workflow_status"]["has_price_snapshot"] is True
+    assert price_only_detail["workflow_status"]["has_parsed_market"] is False
+    assert price_only_detail["workflow_status"]["next_action"] == "parse_market"
+
+    parse_response = client.post(f"/markets/{market_id}/parse")
+    assert parse_response.status_code == 200
+    parsed_market_id = parse_response.json()["id"]
+
+    parsed_detail = client.get(f"/markets/{market_id}").json()
+    assert parsed_detail["workflow_status"]["has_parsed_market"] is True
+    assert parsed_detail["workflow_status"]["has_forecast_snapshot"] is False
+    assert parsed_detail["workflow_status"]["next_action"] == "create_forecast"
+
+    forecast = WeatherForecastSnapshot(
+        parsed_market_id=parsed_market_id,
+        forecast_source="test_fixture",
+        forecast_timestamp=datetime(2026, 5, 4, 12, tzinfo=timezone.utc),
+        target_start=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        target_end=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        forecast_precip_total=1.4,
+        forecast_precip_unit="inch",
+        raw_json={"source": "test"},
+    )
+    db_session.add(forecast)
+    db_session.commit()
+
+    forecast_detail = client.get(f"/markets/{market_id}").json()
+    assert forecast_detail["workflow_status"]["has_forecast_snapshot"] is True
+    assert forecast_detail["workflow_status"]["has_prediction"] is False
+    assert forecast_detail["workflow_status"]["next_action"] == "run_prediction"
+
+    market = db_session.get(Market, market_id)
+    assert market is not None
+    prediction = Prediction(
+        market_id=market.id,
+        parsed_market_id=parsed_market_id,
+        forecast_snapshot_id=forecast.id,
+        model_version="baseline_precip_v1",
+        p_yes=0.7,
+        p_no=0.3,
+        confidence="medium",
+    )
+    db_session.add(prediction)
+    db_session.commit()
+
+    prediction_detail = client.get(f"/markets/{market_id}").json()
+    assert prediction_detail["workflow_status"]["has_prediction"] is True
+    assert prediction_detail["workflow_status"]["has_ev_recommendation"] is False
+    assert prediction_detail["workflow_status"]["next_action"] == "evaluate_strategy"
+
+    db_session.add(
+        EVRecommendation(
+            prediction_id=prediction.id,
+            market_price_yes=0.44,
+            market_price_no=0.56,
+            edge_yes=0.26,
+            edge_no=-0.26,
+            ev_yes=0.26,
+            ev_no=-0.26,
+            recommendation="PAPER_BUY_YES",
+            paper_position_size=10.0,
+        )
+    )
+    db_session.commit()
+
+    ready_detail = client.get(f"/markets/{market_id}").json()
+    assert ready_detail["workflow_status"]["has_ev_recommendation"] is True
+    assert ready_detail["workflow_status"]["next_action"] == "ready_for_paper_trade"
 
 
 def test_refresh_polymarket_price_snapshot_fetches_fresh_source_payload(client: TestClient, monkeypatch) -> None:
@@ -330,3 +453,52 @@ def test_refresh_market_price_snapshot_rejects_payload_without_prices(client: Te
     diagnostics = client.get(f"/markets/{market_id}").json()["source_diagnostics"]
     assert diagnostics["price_status"] == "unsupported"
     assert diagnostics["unsupported_reasons"] == ["no_supported_price_fields"]
+
+
+def test_refresh_polymarket_price_snapshot_persists_rate_limit_diagnostics(client: TestClient, monkeypatch) -> None:
+    class FakeRefreshService:
+        async def fetch_price_payload(self, source: str, source_market_id: str, condition_id: str | None = None) -> dict:
+            raise PublicMarketDataError(
+                endpoint="/prices/condition-1",
+                reason="rate_limited",
+                attempts=3,
+                status_code=429,
+                retryable=True,
+            )
+
+    monkeypatch.setattr(routes_markets, "MarketSourceRefreshService", FakeRefreshService)
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "polymarket",
+            "source_market_id": "source-market-rate-limited",
+            "condition_id": "condition-1",
+            "question": "Will New York City get more than 1 inch of rain on May 5?",
+            "category": "weather",
+            "raw_json": {
+                "market": {
+                    "id": "source-market-rate-limited",
+                    "outcomes": '["Yes", "No"]',
+                    "outcomePrices": '["0.44", "0.56"]',
+                }
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    market_id = create_response.json()["id"]
+
+    response = client.post(f"/markets/{market_id}/price-snapshots/refresh")
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "Market data source request failed" in detail
+    diagnostics = client.get(f"/markets/{market_id}").json()["source_diagnostics"]
+    assert diagnostics["price_status"] == "unsupported"
+    assert diagnostics["unsupported_reasons"] == ["source_refresh_failed"]
+    assert diagnostics["public_source_error"] == {
+        "endpoint": "/prices/condition-1",
+        "reason": "rate_limited",
+        "attempts": 3,
+        "status_code": 429,
+        "retryable": True,
+    }

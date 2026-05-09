@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     OPEN_METEO_BASE_URL: str = "https://api.open-meteo.com/v1"
     OPEN_METEO_ARCHIVE_BASE_URL: str = "https://archive-api.open-meteo.com/v1"
     OPEN_METEO_GEOCODING_BASE_URL: str = "https://geocoding-api.open-meteo.com/v1"
+    NOAA_CDO_BASE_URL: str = "https://www.ncei.noaa.gov/cdo-web/api/v2"
+    NOAA_CDO_TOKEN: str | None = None
     GEOCODING_PROVIDER: str = "fixture"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

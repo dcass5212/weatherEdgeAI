@@ -98,6 +98,7 @@ Design note:
 - Market discovery is the primary source of price snapshots. Mock discovery stores deterministic demo prices, and public-source discovery stores normalized source prices when fields are available.
 - `POST /markets/{market_id}/price-snapshots/refresh` creates a new snapshot from a fresh public source payload for Polymarket-sourced markets, and from the stored raw source payload for manually seeded or non-public markets.
 - Refresh attempts update the parent market's `source_diagnostics` so unsupported or partial price payloads are inspectable even when no new snapshot can be created.
+- Market parsing does not create demo price snapshots. Price records should come from discovery or an explicit refresh path so strategy decisions retain source provenance.
 
 ## `weather_forecast_snapshots`
 
@@ -164,6 +165,7 @@ Design note:
 
 - Recommendations should feed paper trading first. Later live execution should create separate execution/order records from approved recommendations rather than mutating the recommendation itself.
 - Strategy evaluation responses expose `prediction_id`, `price_snapshot_id`, and the prediction's parsed-market and forecast-snapshot IDs so expected-value decisions are reproducible from stored inputs.
+- Current paper sizing converts positive edge into simulated units by multiplying by 100 and capping at 10 units. This is a paper-mode research rule, not a live-trading risk limit.
 
 ## `paper_trades`
 
@@ -220,6 +222,21 @@ Design note:
 7. Optional simulated trade creates a `paper_trades` record.
 8. Later, final outcome is stored in `resolved_outcomes`.
 9. Backtesting compares predictions and paper trades against outcomes.
+
+## API Workflow Status
+
+`GET /markets/{market_id}` includes a computed `workflow_status` object. This is not a stored table; it is derived from the latest related records so the API can show which workflow steps have already run.
+
+Fields:
+
+- `has_price_snapshot`
+- `has_parsed_market`
+- `has_forecast_snapshot`
+- `has_prediction`
+- `has_ev_recommendation`
+- `next_action`
+
+`next_action` is a compact hint for the next backend call: refresh prices, parse the market, create a forecast, run prediction, evaluate strategy, or proceed to paper-trade review.
 
 ## Migration Plan
 

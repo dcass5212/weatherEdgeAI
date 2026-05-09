@@ -55,11 +55,17 @@ async def resolve_weather_outcome(
         raise HTTPException(status_code=409, detail="Market must be parsed before observed weather can be resolved")
 
     try:
-        outcome = await resolve_weather_outcome_for_parsed_market(parsed_market)
+        outcome = await resolve_weather_outcome_for_parsed_market(
+            parsed_market,
+            provider=payload.resolution_provider,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Open-Meteo archive request failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"{payload.resolution_provider} observed-weather request failed: {exc}",
+        ) from exc
 
     db.add(outcome)
     db.commit()

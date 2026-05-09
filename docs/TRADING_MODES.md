@@ -15,6 +15,7 @@ Allowed behavior:
 - Create simulated paper trades.
 - Close simulated paper trades.
 - Evaluate paper-trading PnL.
+- Use simple simulated risk sizing from EV recommendations.
 - Use mock, fixture, or public market data.
 - Exercise execution-like logic through paper adapters.
 
@@ -66,6 +67,8 @@ Forbidden behavior:
 ## Defaults
 
 Paper mode is the default. If configuration is missing, malformed, or ambiguous, the system should behave as paper mode or fail closed.
+
+Current paper sizing is deliberately simple and research-only. Actionable EV recommendations convert positive probability edge into simulated units by multiplying edge by 100 and capping the result at 10 units. This cap is not a live-trading risk limit; live execution still requires separate safety controls, audit logging, kill-switch behavior, and tested exposure limits.
 
 Live mode must require an explicit setting such as:
 

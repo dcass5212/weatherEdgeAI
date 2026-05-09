@@ -107,7 +107,7 @@ Tradeoff:
 
 Future revisit:
 
-- Add NOAA/NWS observed weather data for outcome verification and calibration.
+- Expand NOAA/NWS observed weather coverage beyond the initial credential-gated NOAA CDO daily precipitation client, especially station selection, provider diagnostics, and additional observed fields.
 
 ## Decision 6A: Fixture Geocoder Before Optional External Geocoding
 

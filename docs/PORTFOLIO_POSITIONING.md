@@ -44,7 +44,7 @@ It is less directly targeted at frontend-only roles unless a dashboard is added 
 - Implemented a baseline precipitation probability model with expected-value analysis and test coverage for core strategy behavior.
 - Integrated public market and weather data sources through modular clients designed for offline testing and future provider expansion.
 - Implemented seed-fixture backtesting with Brier score, log loss, calibration buckets, sample-size notes, and paper-trade replay summaries.
-- Added observed-weather outcome normalization for Open-Meteo archive and fixture/manual NOAA/NCEI CDO-style daily precipitation payloads while keeping demos credential-free.
+- Added observed-weather outcome normalization for Open-Meteo archive and NOAA/NCEI CDO-style daily precipitation payloads, plus an optional credential-gated NOAA CDO client while keeping demos credential-free.
 
 ## Interview Talking Points
 

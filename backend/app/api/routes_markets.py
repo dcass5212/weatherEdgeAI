@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Market, MarketPriceSnapshot, ParsedMarket, utc_now
 from app.db.repositories import (
     get_market,
+    latest_forecast_snapshot,
     latest_parsed_market,
     latest_prediction,
     latest_price_snapshot,
@@ -29,6 +30,7 @@ from app.markets.market_discovery import (
     normalize_price_snapshot,
 )
 from app.markets.market_parser import parse_precipitation_market
+from app.markets.polymarket_client import PublicMarketDataError
 from app.markets.schemas import (
     MarketCreate,
     MarketDetailRead,
@@ -36,6 +38,7 @@ from app.markets.schemas import (
     MarketDiscoveryResponse,
     MarketPriceSnapshotRead,
     MarketRead,
+    MarketWorkflowStatus,
     ParsedMarketRead,
 )
 from app.weather.geocoding import resolve_location_for_market
@@ -100,7 +103,12 @@ def _merge_price_payload_with_market_context(stored_payload: dict | None, fresh_
     return {**context, **fresh_payload}
 
 
-def _source_refresh_error_diagnostics(market: Market, error: str) -> dict:
+def _source_refresh_error_diagnostics(
+    market: Market,
+    error: str,
+    source_error: PublicMarketDataError | None = None,
+) -> dict:
+    public_error = source_error.to_diagnostics() if source_error else None
     return {
         "source": market.source,
         "capabilities": {
@@ -116,6 +124,7 @@ def _source_refresh_error_diagnostics(market: Market, error: str) -> dict:
         "price_status": "unsupported",
         "unsupported_reasons": ["source_refresh_failed"],
         "source_error": error,
+        "public_source_error": public_error,
     }
 
 
@@ -150,6 +159,36 @@ def _persist_price_snapshot_from_payload(
     )
     db.add(snapshot)
     return snapshot
+
+
+def _workflow_status(
+    price_snapshot: MarketPriceSnapshot | None,
+    parsed_market: ParsedMarket | None,
+    has_forecast_snapshot: bool,
+    prediction: object | None,
+    ev_recommendation: object | None,
+) -> MarketWorkflowStatus:
+    if price_snapshot is None:
+        next_action = "refresh_price_snapshot"
+    elif parsed_market is None:
+        next_action = "parse_market"
+    elif not has_forecast_snapshot:
+        next_action = "create_forecast"
+    elif prediction is None:
+        next_action = "run_prediction"
+    elif ev_recommendation is None:
+        next_action = "evaluate_strategy"
+    else:
+        next_action = "ready_for_paper_trade"
+
+    return MarketWorkflowStatus(
+        has_price_snapshot=price_snapshot is not None,
+        has_parsed_market=parsed_market is not None,
+        has_forecast_snapshot=has_forecast_snapshot,
+        has_prediction=prediction is not None,
+        has_ev_recommendation=ev_recommendation is not None,
+        next_action=next_action,
+    )
 
 
 @router.get("", response_model=list[MarketRead])
@@ -231,13 +270,23 @@ def get_market_detail(market_id: int, db: Session = Depends(get_db)) -> MarketDe
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
 
+    parsed_market = latest_parsed_market(db, market_id)
+    price_snapshot = latest_price_snapshot(db, market_id)
+    forecast_snapshot = latest_forecast_snapshot(db, parsed_market.id) if parsed_market else None
     prediction = latest_prediction(db, market_id)
     ev_recommendation = latest_recommendation(db, prediction.id) if prediction else None
     data = MarketRead.model_validate(market).model_dump()
-    data["latest_parsed_market"] = latest_parsed_market(db, market_id)
-    data["latest_price_snapshot"] = latest_price_snapshot(db, market_id)
+    data["latest_parsed_market"] = parsed_market
+    data["latest_price_snapshot"] = price_snapshot
     data["latest_prediction"] = prediction
     data["latest_ev_recommendation"] = ev_recommendation
+    data["workflow_status"] = _workflow_status(
+        price_snapshot=price_snapshot,
+        parsed_market=parsed_market,
+        has_forecast_snapshot=forecast_snapshot is not None,
+        prediction=prediction,
+        ev_recommendation=ev_recommendation,
+    )
     return MarketDetailRead.model_validate(data)
 
 
@@ -255,6 +304,10 @@ async def refresh_market_price_snapshot(market_id: int, db: Session = Depends(ge
                 source_market_id=market.source_market_id,
                 condition_id=market.condition_id,
             )
+        except PublicMarketDataError as exc:
+            market.source_diagnostics = _source_refresh_error_diagnostics(market, str(exc), source_error=exc)
+            db.commit()
+            raise HTTPException(status_code=502, detail=f"Market data source request failed: {exc}") from exc
         except httpx.HTTPError as exc:
             market.source_diagnostics = _source_refresh_error_diagnostics(market, str(exc))
             db.commit()
@@ -316,20 +369,6 @@ async def parse_market(market_id: int, db: Session = Depends(get_db)) -> ParsedM
         },
     )
     db.add(parsed_market)
-
-    if latest_price_snapshot(db, market.id) is None:
-        db.add(
-            MarketPriceSnapshot(
-                market_id=market.id,
-                yes_price=0.44,
-                no_price=0.56,
-                spread=0.02,
-                liquidity=1000.0,
-                volume=2500.0,
-                timestamp=utc_now(),
-                raw_json={"mock": True, "source": "parse_route_demo_fallback"},
-            )
-        )
 
     db.commit()
     db.refresh(parsed_market)

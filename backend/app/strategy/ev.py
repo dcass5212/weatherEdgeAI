@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from app.db.models import MarketPriceSnapshot, Prediction
+from app.strategy.risk import calculate_paper_position_size
 
 
 RECOMMENDATIONS = {"AVOID", "WATCH", "PAPER_BUY_YES", "PAPER_BUY_NO"}
@@ -63,12 +64,18 @@ def evaluate_market_edge(
         paper_position_size = None
     elif edge_yes >= edge_no and edge_yes >= edge_threshold:
         recommendation = "PAPER_BUY_YES"
-        reason = f"Model probability exceeds market-implied probability by {edge_yes:.0%}."
-        paper_position_size = min(10.0, round(edge_yes * 100, 2))
+        paper_position_size = calculate_paper_position_size(edge_yes)
+        reason = (
+            f"Model probability exceeds market-implied probability by {edge_yes:.0%}; "
+            f"paper size is {paper_position_size:.2f} with a 10.00 max."
+        )
     elif edge_no > edge_yes and edge_no >= edge_threshold:
         recommendation = "PAPER_BUY_NO"
-        reason = f"Model NO probability exceeds market-implied probability by {edge_no:.0%}."
-        paper_position_size = min(10.0, round(edge_no * 100, 2))
+        paper_position_size = calculate_paper_position_size(edge_no)
+        reason = (
+            f"Model NO probability exceeds market-implied probability by {edge_no:.0%}; "
+            f"paper size is {paper_position_size:.2f} with a 10.00 max."
+        )
     else:
         recommendation = "WATCH"
         reason = "Edge is near threshold but not actionable."

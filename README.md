@@ -192,6 +192,7 @@ Invoke-RestMethod `
 - `AGENTS.md`: operating instructions for Codex and future contributors.
 - `docs/ROADMAP.md`: current project plan and priorities.
 - `docs/LOCAL_DEMO.md`: copy-paste local demo workflow.
+- `docs/DATA_SOURCES.md`: market, forecast, geocoding, and observed-outcome provider boundaries.
 - `docs/TRADING_MODES.md`: paper, live, and read-only mode rules.
 - `docs/LIVE_TRADING_SAFETY.md`: controls required before live execution.
 - `docs/BACKTESTING_SPEC.md`: replay, metrics, and evidence requirements.
@@ -207,13 +208,28 @@ The current backend includes SQLAlchemy persistence models, Pydantic response sc
 
 Market discovery now uses the public Polymarket-style Gamma API by default through `POST /markets/discover`. For local demos or tests without network access, pass `"source": "mock"` in the request body.
 
+Market detail reads include a computed `workflow_status` object that shows completed pipeline steps and the next recommended backend action, such as `create_forecast`, `run_prediction`, or `evaluate_strategy`.
+
 Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh public source payloads and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, liquidity, volume, status, and resolution fields without enabling authenticated trading.
+
+Market parsing does not create demo price snapshots. Strategy evaluation depends on price records from market discovery or the explicit price refresh endpoint so recommendations can be traced back to source payloads.
 
 Forecast snapshots now use Open-Meteo through `POST /weather/forecast/{parsed_market_id}`. Parsed markets need latitude and longitude; the V1 parse route resolves New York City, NYC, New York, and Chicago through a deterministic fixture geocoder by default. A broader Open-Meteo geocoding provider is implemented behind the same adapter and can be enabled for manual runs with `GEOCODING_PROVIDER=open_meteo`.
 
-Backtesting now supports persisted predictions joined to resolved outcomes, plus a deterministic seed-fixture replay. Reports include prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, sample-size notes, EV recommendation count, paper-trade count, settlement PnL, paper ROI, and max drawdown.
+Backtesting now supports persisted predictions joined to resolved outcomes, plus a deterministic seed-fixture replay. Reports include prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, sample-size notes, coverage diagnostics, EV recommendation count, paper-trade count, settlement PnL, paper ROI, and max drawdown.
 
-Observed weather outcomes can be resolved from Open-Meteo archive data for parsed precipitation markets, and the resolver can normalize fixture/manual NOAA/NCEI CDO-style daily `PRCP` records. A live credential-gated NOAA/NWS client is planned later and is not required for local demos or tests.
+Observed weather outcomes can be resolved from Open-Meteo archive data for parsed precipitation markets. The resolver can also use a credential-gated NOAA/NCEI CDO daily `PRCP` client when `NOAA_CDO_TOKEN` is configured. NOAA is optional, mocked in tests, and not required for local demos.
+
+Manual NOAA outcome resolution uses the same resolved-outcome endpoint:
+
+```json
+{
+  "market_id": 1,
+  "resolution_provider": "noaa_cdo_daily"
+}
+```
+
+See `docs/API_WORKFLOWS.md` and `docs/DATA_SOURCES.md` for setup, failure modes, and current NOAA station-selection limitations.
 
 ## Backend Endpoints
 

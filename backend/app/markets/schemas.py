@@ -95,11 +95,21 @@ class MarketPriceSnapshotRead(BaseModel):
     created_at: datetime
 
 
+class MarketWorkflowStatus(BaseModel):
+    has_price_snapshot: bool = False
+    has_parsed_market: bool = False
+    has_forecast_snapshot: bool = False
+    has_prediction: bool = False
+    has_ev_recommendation: bool = False
+    next_action: str
+
+
 class MarketDetailRead(MarketRead):
     latest_parsed_market: ParsedMarketRead | None = None
     latest_price_snapshot: MarketPriceSnapshotRead | None = None
     latest_prediction: PredictionRead | None = None
     latest_ev_recommendation: EVRecommendationRead | None = None
+    workflow_status: MarketWorkflowStatus
 
 
 class MarketDiscoveryRequest(BaseModel):

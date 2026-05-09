@@ -71,6 +71,36 @@ GET /markets
 
 Use the returned market IDs for the rest of the workflow.
 
+Read a market's current pipeline state:
+
+```http
+GET /markets/{market_id}
+```
+
+The detail response includes `workflow_status` so clients and reviewers can see what has been completed and what should happen next:
+
+```json
+{
+  "workflow_status": {
+    "has_price_snapshot": true,
+    "has_parsed_market": true,
+    "has_forecast_snapshot": false,
+    "has_prediction": false,
+    "has_ev_recommendation": false,
+    "next_action": "create_forecast"
+  }
+}
+```
+
+Current `next_action` values:
+
+- `refresh_price_snapshot`
+- `parse_market`
+- `create_forecast`
+- `run_prediction`
+- `evaluate_strategy`
+- `ready_for_paper_trade`
+
 ## Workflow 1A: Refresh A Market Price Snapshot
 
 Refresh a market price snapshot from the source. Polymarket markets use a fresh public payload; manually seeded or non-public markets use their stored payload.
@@ -84,6 +114,7 @@ POST /markets/{market_id}/price-snapshots/refresh
 Current behavior:
 
 - Polymarket-sourced markets fetch a fresh public source payload before normalization.
+- Public source requests retry transient failures and rate limits within a small retry budget.
 - Fresh Polymarket price payloads are combined with stored market context when token-only price maps need the market's outcome and token-id metadata.
 - Non-public or manually seeded markets continue to use the stored raw source payload when present.
 - Normalizes common Polymarket-style fields such as YES/NO outcome prices, token outcome prices, midpoint or last trade price, CLOB orderbook bid/ask levels, CLOB token BUY/SELL price maps, spread, liquidity, and volume.
@@ -112,7 +143,7 @@ Failure cases:
 - `404` when the market does not exist.
 - `409` when the market has no stored source payload.
 - `409` when the source payload does not include supported price fields. In that case the market record keeps diagnostics such as `price_status: "unsupported"` and unsupported reasons.
-- `502` when a public market-data source request fails. The market keeps source diagnostics with `source_refresh_failed`.
+- `502` when a public market-data source request fails. The market keeps source diagnostics with `source_refresh_failed` plus `public_source_error` fields for endpoint, reason, retry attempts, status code, and whether the failure was retryable.
 
 ## Workflow 2: Parse A Market
 
@@ -131,7 +162,7 @@ Current behavior:
 - Supports common V1 precipitation wording such as `more than 1 inch of rain`, `over 1 inch of precipitation`, `at least 0.5 inches of rain`, `0.5 inches or more of rain`, and `more than 1 inch of rain in New York City`.
 - Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, and Chicago by default.
 - A broader Open-Meteo geocoding provider is available behind the same adapter when `GEOCODING_PROVIDER=open_meteo`.
-- If no price snapshot exists, the current route creates a demo fallback price snapshot to keep manually seeded markets usable. Normal discovery should create source-aware price snapshots before parsing.
+- Parsing does not create market price snapshots. Use market discovery or `POST /markets/{market_id}/price-snapshots/refresh` so strategy evaluation can trace prices to a source payload.
 
 Expected response fields:
 
@@ -263,6 +294,7 @@ Current behavior:
 - The stored recommendation records the exact `prediction_id` and `price_snapshot_id` used.
 - The response also includes the prediction's `parsed_market_id` and `forecast_snapshot_id` so the full input chain is visible in one API call.
 - Produces one of `AVOID`, `WATCH`, `PAPER_BUY_YES`, or `PAPER_BUY_NO`.
+- For paper-buy recommendations, `paper_position_size` uses a simple paper-mode sizing rule: positive edge is converted to percentage points and capped at 10 simulated units. For example, a 3.5 percentage-point edge suggests 3.5 units; a 31 percentage-point edge is capped at 10 units. Non-actionable recommendations leave size empty.
 
 Expected response fields:
 
@@ -277,7 +309,8 @@ Expected response fields:
   "market_price_yes": 0.44,
   "edge_yes": 0.16,
   "recommendation": "PAPER_BUY_YES",
-  "paper_position_size": 10.0
+  "paper_position_size": 10.0,
+  "reason": "Model probability exceeds market-implied probability by 16%; paper size is 10.00 with a 10.00 max."
 }
 ```
 
@@ -351,6 +384,7 @@ Current behavior:
 - Filters by model version and resolved-at date window.
 - Reports prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, and a sample-size note.
 - Reports EV recommendation count, eligible paper-trade count, settlement PnL, paper ROI, and max drawdown for trades linked to recommendations from the selected model version.
+- Reports coverage diagnostics for candidate predictions, evaluated prediction/outcome pairs, missing outcomes, unmatched outcomes, and predictions excluded by model version.
 
 Create a resolved outcome:
 
@@ -378,7 +412,33 @@ GET /backtests/resolved-outcomes
 GET /backtests/resolved-outcomes?market_id=1
 ```
 
-Resolve a parsed precipitation market from observed Open-Meteo archive data:
+Resolve a parsed precipitation market from observed weather data:
+
+```http
+POST /backtests/resolved-outcomes/resolve-weather
+Content-Type: application/json
+
+{
+  "market_id": 1,
+  "resolution_provider": "open_meteo_archive"
+}
+```
+
+Current behavior:
+
+- Uses the market's latest parsed weather target.
+- Requires parsed latitude, longitude, and target dates.
+- Defaults to Open-Meteo archive when `resolution_provider` is omitted.
+- Supports `resolution_provider: "open_meteo_archive"` for public archive observations.
+- Supports `resolution_provider: "noaa_cdo_daily"` for credential-gated NOAA/NCEI CDO daily `PRCP` observations when `NOAA_CDO_TOKEN` is configured.
+- Converts millimeters to inches when needed and compares the observed total to the parsed threshold.
+- Persists a normal `resolved_outcomes` record with the selected `resolution_source` and the raw provider payload.
+- Fails closed with `422` when the NOAA provider is requested without credentials.
+- Returns `502` when an observed-weather provider request fails.
+
+### Observed Outcome Provider Usage
+
+Use Open-Meteo archive for the normal local workflow. It is the default and does not require credentials:
 
 ```http
 POST /backtests/resolved-outcomes/resolve-weather
@@ -389,13 +449,46 @@ Content-Type: application/json
 }
 ```
 
-Current behavior:
+Use the same endpoint with an explicit Open-Meteo provider when you want the request body to show the selected source:
 
-- Uses the market's latest parsed weather target.
-- Requires parsed latitude, longitude, and target dates.
-- Requests daily observed precipitation from Open-Meteo archive.
-- Converts millimeters to inches when needed and compares the observed total to the parsed threshold.
-- Persists a normal `resolved_outcomes` record with `resolution_source: "open_meteo_archive"` and the raw provider payload.
+```http
+POST /backtests/resolved-outcomes/resolve-weather
+Content-Type: application/json
+
+{
+  "market_id": 1,
+  "resolution_provider": "open_meteo_archive"
+}
+```
+
+Use NOAA/NCEI CDO only for manual observed-outcome resolution after configuring a token:
+
+```env
+NOAA_CDO_BASE_URL=https://www.ncei.noaa.gov/cdo-web/api/v2
+NOAA_CDO_TOKEN=your_token_here
+```
+
+```http
+POST /backtests/resolved-outcomes/resolve-weather
+Content-Type: application/json
+
+{
+  "market_id": 1,
+  "resolution_provider": "noaa_cdo_daily"
+}
+```
+
+Provider behavior:
+
+- `open_meteo_archive` requests daily precipitation from Open-Meteo archive by latitude, longitude, and parsed target date window.
+- `noaa_cdo_daily` requests NOAA/NCEI CDO daily `PRCP` records using a small coordinate bounding box around the parsed market location.
+- Both providers preserve raw payloads under the stored `resolved_outcomes.raw_json` field.
+- Both providers compare observed precipitation against the parsed market operator and threshold.
+- NOAA requests fail before provider access when `NOAA_CDO_TOKEN` is not configured.
+
+Current NOAA limitation:
+
+- The NOAA client does not yet implement robust station selection. It asks CDO for `PRCP` observations in a small bounding box around the parsed coordinates and normalizes returned daily precipitation records. Future work should add station-choice diagnostics and better handling of multiple nearby stations.
 
 Expected backtest response fields:
 
@@ -404,6 +497,14 @@ Expected backtest response fields:
   "model_version": "baseline_precip_v1",
   "num_predictions": 3,
   "num_resolved_outcomes": 3,
+  "coverage_diagnostics": {
+    "candidate_prediction_count": 3,
+    "evaluated_prediction_count": 3,
+    "missing_outcome_count": 0,
+    "resolved_outcome_count_in_window": 3,
+    "unmatched_resolved_outcome_count": 0,
+    "excluded_prediction_model_version_count": 0
+  },
   "ev_recommendation_count": 3,
   "paper_trade_count": 3,
   "win_rate": 0.666667,
@@ -438,7 +539,7 @@ Expected backtest response fields:
 
 Target behavior:
 
-- Add richer source/coverage diagnostics and broader observation-provider coverage.
+- Continue broadening observation-provider coverage and source diagnostics as new real payload shapes are captured.
 
 ## Main Demo Sequence
 
