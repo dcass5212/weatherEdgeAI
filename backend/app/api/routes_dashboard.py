@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.backtesting.backtest_runner import BacktestRunner, build_seed_fixture_backtest_response
 from app.backtesting.schemas import BacktestRunRequest, CalibrationBucket
-from app.db.models import EVRecommendation, Market, PaperTrade, Prediction
+from app.db.models import EVRecommendation, Market, PaperRunnerRun, PaperTrade, Prediction
 from app.db.models import ResolvedOutcome
 from app.db.repositories import (
     latest_forecast_snapshot,
@@ -39,6 +39,7 @@ class DashboardMarketSummary(BaseModel):
     price_status: str | None = None
     unsupported_reasons: list[str] = []
     has_public_source_error: bool = False
+    source_error_label: str | None = None
     active: bool
     closed: bool
     latest_price_snapshot_id: int | None = None
@@ -75,11 +76,30 @@ class DashboardEvaluationSummary(BaseModel):
     calibration_buckets: list[CalibrationBucket]
 
 
+class DashboardPaperRunnerRun(BaseModel):
+    id: int
+    status: str
+    source: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    dry_run: bool
+    discovered: int
+    processed: int
+    parsed: int
+    forecasts_created: int
+    predictions_created: int
+    recommendations_created: int
+    paper_trades_created: int
+    skipped: dict
+    errors: list[str]
+
+
 class DashboardSummaryRead(BaseModel):
     recent_markets: list[DashboardMarketSummary]
     opportunities: list[OpportunityRead]
     open_paper_trades: list[PaperTradeRead]
     evaluation_summary: DashboardEvaluationSummary
+    recent_paper_runs: list[DashboardPaperRunnerRun]
 
 
 def _workflow_status(
@@ -131,11 +151,23 @@ def _parsed_target_label(parsed_market: object | None) -> str | None:
 
 def _source_diagnostics_summary(market: Market) -> dict:
     diagnostics = market.source_diagnostics if isinstance(market.source_diagnostics, dict) else {}
+    price_status = diagnostics.get("price_status") if isinstance(diagnostics.get("price_status"), str) else None
     unsupported_reasons = diagnostics.get("unsupported_reasons")
+    public_source_error = diagnostics.get("public_source_error")
+    source_error_label = None
+    if isinstance(public_source_error, dict):
+        reason = public_source_error.get("reason")
+        if price_status == "stale_supported":
+            source_error_label = "using stored price"
+        elif isinstance(reason, str):
+            source_error_label = reason
+        else:
+            source_error_label = "source error"
     return {
-        "price_status": diagnostics.get("price_status") if isinstance(diagnostics.get("price_status"), str) else None,
+        "price_status": price_status,
         "unsupported_reasons": unsupported_reasons if isinstance(unsupported_reasons, list) else [],
         "has_public_source_error": bool(diagnostics.get("public_source_error")),
+        "source_error_label": source_error_label,
     }
 
 
@@ -166,6 +198,7 @@ def _recent_market_summaries(db: Session, limit: int) -> list[DashboardMarketSum
                 price_status=diagnostics_summary["price_status"],
                 unsupported_reasons=diagnostics_summary["unsupported_reasons"],
                 has_public_source_error=diagnostics_summary["has_public_source_error"],
+                source_error_label=diagnostics_summary["source_error_label"],
                 active=market.active,
                 closed=market.closed,
                 latest_price_snapshot_id=price_snapshot_id,
@@ -259,11 +292,41 @@ def _evaluation_summary(db: Session, model_version: str) -> DashboardEvaluationS
     )
 
 
+def _recent_paper_runner_runs(db: Session, limit: int) -> list[DashboardPaperRunnerRun]:
+    runs = db.scalars(
+        select(PaperRunnerRun).order_by(PaperRunnerRun.started_at.desc(), PaperRunnerRun.id.desc()).limit(limit)
+    )
+    summaries: list[DashboardPaperRunnerRun] = []
+    for run in runs:
+        config = run.config_json if isinstance(run.config_json, dict) else {}
+        summaries.append(
+            DashboardPaperRunnerRun(
+                id=run.id,
+                status=run.status,
+                source=run.source,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+                dry_run=not bool(config.get("create_trades", True)),
+                discovered=run.discovered,
+                processed=run.processed,
+                parsed=run.parsed,
+                forecasts_created=run.forecasts_created,
+                predictions_created=run.predictions_created,
+                recommendations_created=run.recommendations_created,
+                paper_trades_created=run.paper_trades_created,
+                skipped=run.skipped_json if isinstance(run.skipped_json, dict) else {},
+                errors=run.errors_json if isinstance(run.errors_json, list) else [],
+            )
+        )
+    return summaries
+
+
 @router.get("/summary", response_model=DashboardSummaryRead)
 def get_dashboard_summary(
     market_limit: int = Query(default=10, gt=0, le=50),
     opportunity_limit: int = Query(default=10, gt=0, le=50),
     trade_limit: int = Query(default=10, gt=0, le=50),
+    paper_run_limit: int = Query(default=5, gt=0, le=20),
     model_version: str = "baseline_precip_v1",
     db: Session = Depends(get_db),
 ) -> DashboardSummaryRead:
@@ -277,4 +340,5 @@ def get_dashboard_summary(
         opportunities=_opportunities(db, opportunity_limit),
         open_paper_trades=[PaperTradeRead.model_validate(trade) for trade in open_trades],
         evaluation_summary=_evaluation_summary(db, model_version),
+        recent_paper_runs=_recent_paper_runner_runs(db, paper_run_limit),
     )

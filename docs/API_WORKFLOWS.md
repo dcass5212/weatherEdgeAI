@@ -217,8 +217,10 @@ Current behavior:
 - Returns recent markets with workflow status and latest record IDs for price snapshot, parsed market, forecast snapshot, prediction, EV recommendation, and paper trade.
 - Includes compact latest inspection values for the parsed weather target, forecast precipitation total, model YES probability, market YES price, YES edge, EV recommendation, and paper-trade status.
 - Includes compact source diagnostics for each recent market: `source`, `price_status`, `unsupported_reasons`, and whether a public source error was recorded.
+- Labels recoverable stale-price fallback as `using stored price` when a public refresh fails but a stored binary snapshot remains usable.
 - Returns recent paper-buy opportunities.
 - Returns open paper trades.
+- Returns recent public paper-runner history, including run status, dry-run flag, workflow counts, skip reasons, and errors.
 - Returns a compact backtest and calibration summary. The endpoint first tries a read-only persisted replay over existing resolved outcomes for the requested model version. If no completed persisted replay exists, it returns deterministic seed-fixture metrics without writing seed records.
 - Does not place orders, create paper trades, refresh public data, or call weather providers.
 
@@ -234,6 +236,7 @@ Expected response shape:
       "price_status": "supported",
       "unsupported_reasons": [],
       "has_public_source_error": false,
+      "source_error_label": null,
       "latest_price_snapshot_id": 1,
       "latest_parsed_market_id": 1,
       "latest_forecast_snapshot_id": 1,
@@ -261,6 +264,27 @@ Expected response shape:
   ],
   "opportunities": [],
   "open_paper_trades": [],
+  "recent_paper_runs": [
+    {
+      "id": 1,
+      "status": "completed",
+      "source": "polymarket",
+      "started_at": "2026-05-09T12:00:00Z",
+      "completed_at": "2026-05-09T12:01:00Z",
+      "dry_run": true,
+      "discovered": 25,
+      "processed": 10,
+      "parsed": 3,
+      "forecasts_created": 2,
+      "predictions_created": 2,
+      "recommendations_created": 2,
+      "paper_trades_created": 0,
+      "skipped": {
+        "missing_coordinates": 4
+      },
+      "errors": []
+    }
+  ],
   "evaluation_summary": {
     "model_version": "baseline_precip_v1",
     "source": "seed_fixture",
@@ -291,7 +315,9 @@ Current frontend behavior:
 - Shows compact market source diagnostics, including supported/partial/unsupported price status and unsupported reasons.
 - Shows compact backtest metrics, paper replay metrics, calibration buckets, and sample-size context.
 - Shows paper-buy opportunities and open paper trades.
+- Shows recent public paper-runner runs with status, dry-run mode, workflow counts, skip reasons, and errors.
 - Provides a `Run Paper Demo` button that calls only `POST /demo/paper-workflow`.
+- Provides a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so it can discover and evaluate public markets without creating paper trades.
 - Does not expose live-trading controls.
 
 Run it after starting the backend:
@@ -774,6 +800,64 @@ Read recent persisted runs:
 ```http
 GET /paper-runner/runs
 GET /paper-runner/runs/{run_id}
+```
+
+Read an aggregated public-market validation report:
+
+```http
+GET /paper-runner/diagnostics
+GET /paper-runner/diagnostics?source=polymarket&limit=20
+```
+
+Current behavior:
+
+- Summarizes recent paper-run counts for discovered, processed, parsed, forecasted, predicted, recommended, and simulated paper-traded markets.
+- Groups skip reasons into readable categories such as price data, eligibility filters, parser, geocoding, provider/workflow errors, and paper-trading controls.
+- Reports market source price-status counts from persisted `source_diagnostics`, such as `supported`, `partial`, `unsupported`, and `stale_supported`.
+- Reports unsupported public price reasons captured from market diagnostics, such as non-binary outcomes, missing binary prices, unsupported fresh price payloads, and source refresh failures.
+- Returns recent workflow/provider errors with the runner record ID that captured each error.
+- Does not refresh public data, call weather providers, create paper trades, or use live execution.
+
+Expected response shape:
+
+```json
+{
+  "source": "polymarket",
+  "run_count": 2,
+  "latest_run_ids": [12, 11],
+  "discovered": 50,
+  "processed": 20,
+  "parsed": 3,
+  "forecasts_created": 2,
+  "predictions_created": 2,
+  "recommendations_created": 2,
+  "paper_trades_created": 0,
+  "skip_reasons": [
+    {
+      "reason": "missing_coordinates",
+      "count": 6,
+      "category": "geocoding",
+      "label": "Parsed location has no coordinates"
+    }
+  ],
+  "price_status_counts": {
+    "partial": 4,
+    "supported": 8
+  },
+  "unsupported_price_reasons": [
+    {
+      "reason": "non_binary_outcomes",
+      "count": 2
+    }
+  ],
+  "error_count": 1,
+  "recent_errors": [
+    {
+      "run_id": 12,
+      "message": "market_id=7: provider timeout"
+    }
+  ]
+}
 ```
 
 ## Trading Mode Boundary

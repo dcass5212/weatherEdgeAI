@@ -58,6 +58,7 @@ Implemented:
 - Paper-only demo workflow endpoint, `POST /demo/paper-workflow`, for one-click mock discovery, parsing, fixture forecast creation, prediction, EV evaluation, and simulated paper-trade creation.
 - One-shot public-market paper runner script with discovery, price refresh, eligibility skips, forecast/model/EV evaluation, max-trade caps, duplicate open-side checks, and simulated paper-trade creation only.
 - Persisted `paper_runner_runs` records and API endpoints for one-shot public paper-run execution and run-history inspection.
+- Aggregated `GET /paper-runner/diagnostics` reporting recent public paper-run counts, categorized skip reasons, market source price-status counts, unsupported public price reasons, and recent workflow/provider errors.
 - Paper-trade endpoints.
 - Scripted end-to-end demo workflow for mock discovery, parsing, deterministic forecast snapshot creation, prediction, EV evaluation, and paper-trade creation.
 - README and local demo docs now include architecture flow, expected smoke-demo output, representative seed backtest output, and current observed-outcome boundaries.
@@ -90,8 +91,8 @@ Known gaps:
 - Parser failure detail exists for common unsupported cases, and one-sided inch/mm threshold coverage has expanded from real public dry-run misses. Interval contracts such as `between 2 and 3 inches` remain unsupported until interval probability modeling exists.
 - Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including nested orderbook payloads, nested stats-only payloads, wrapped market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, empty orderbooks, and split fresh-price/stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
 - Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
-- Frontend UI has a dashboard with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, paper-trade inspection, and a safe `Run Paper Demo` action. Broader workflow controls remain a planned follow-up.
-- Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, and can continue from stored discovery-time prices when refresh fails but a usable binary snapshot exists. It is not yet a daemon with alerting.
+- Frontend UI has a dashboard with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, paper-trade inspection, recent public paper-runner history, a safe `Run Paper Demo` action, and a public `Run Public Dry Run` action that does not create trades. Broader workflow controls remain a planned follow-up.
+- Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, exposes aggregated diagnostics for skipped markets and unsupported public price payloads, and can continue from stored discovery-time prices when refresh fails but a usable binary snapshot exists. It is not yet a daemon with alerting.
 
 ## Phase 1: Persistence Foundation
 
@@ -285,6 +286,7 @@ Work:
 - Add rate-limit and retry behavior appropriate for public data access. Initial client retry handling and route-level persisted diagnostics are implemented for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts.
 - Preserve paper-runner progress when fresh public price endpoints fail but discovery already captured usable binary prices. Done with explicit `stale_supported` diagnostics and a `price_refresh_failed_used_stored_snapshot` runner count.
 - Add tests using captured fixture payloads, not live network calls.
+- Add an aggregated diagnostics endpoint for recent public paper-run skip reasons and source-price limitations. Done.
 - Document what real market data is used and which live-execution capabilities are intentionally not enabled yet.
 
 Done when:
@@ -341,8 +343,9 @@ Work:
 - Show the end-to-end pipeline state for each market. Initial pipeline status is implemented.
 - Surface data provenance: parsed target, forecast snapshot, model output, price snapshot, EV recommendation, and public source diagnostics. Initial inline latest-signal and source-diagnostic fields are implemented; deeper market-detail inspection remains a follow-up.
 - Surface model evaluation context. Compact backtest metrics, paper replay metrics, calibration buckets, and sample-size notes are implemented through the dashboard summary contract.
+- Surface public paper-runner validation history. Recent run status, dry-run mode, workflow counts, skip reasons, and errors are implemented through the dashboard summary contract.
 - Keep the UI operational and data-dense, not marketing-focused. Initial pass follows this direction.
-- Add safe paper-workflow action buttons after the read-only dashboard is stable. Initial `Run Paper Demo` button is implemented; granular workflow controls remain planned.
+- Add safe paper-workflow action buttons after the read-only dashboard is stable. Initial `Run Paper Demo` and `Run Public Dry Run` buttons are implemented; granular workflow controls remain planned.
 
 Done when:
 

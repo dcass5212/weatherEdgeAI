@@ -12,6 +12,7 @@ from app.strategy.paper_market_runner import PaperMarketRunner, PaperMarketRunne
 
 def _discovered_market(
     source_market_id: str = "public-nyc-rain",
+    question: str = "Will New York City get more than 1 inch of rain tomorrow?",
     yes_price: float | None = 0.44,
     no_price: float | None = 0.56,
     liquidity: float | None = 1000.0,
@@ -21,7 +22,7 @@ def _discovered_market(
         source="polymarket",
         source_market_id=source_market_id,
         condition_id=f"condition-{source_market_id}",
-        question="Will New York City get more than 1 inch of rain tomorrow?",
+        question=question,
         slug=source_market_id,
         category="weather",
         active=True,
@@ -30,7 +31,7 @@ def _discovered_market(
         resolution_source=None,
         raw_json={
             "id": source_market_id,
-            "question": "Will New York City get more than 1 inch of rain tomorrow?",
+            "question": question,
             "outcomes": '["Yes", "No"]',
             "outcomePrices": f"[\"{yes_price}\", \"{no_price}\"]",
         },
@@ -149,6 +150,25 @@ async def test_paper_market_runner_skips_ineligible_prices(db_session: Session) 
     assert report.skipped["missing_binary_prices"] == 1
     assert report.skipped["liquidity_below_min"] == 1
     assert report.skipped["spread_above_max"] == 1
+
+
+@pytest.mark.anyio
+async def test_paper_market_runner_records_detailed_parse_failure_skip(db_session: Session) -> None:
+    runner = PaperMarketRunner(
+        db=db_session,
+        config=PaperMarketRunnerConfig(refresh_prices=False),
+        discovery_service=FakeDiscoveryService([
+            _discovered_market(source_market_id="temperature-market", question="Will New York City be above 90 degrees tomorrow?")
+        ]),
+        forecast_provider=fixture_forecast,
+    )
+
+    report = await runner.run_once()
+
+    assert report.processed == 1
+    assert report.paper_trades_created == 0
+    assert report.skipped["parse_failed"] == 1
+    assert report.skipped["parse_failed_not_precipitation"] == 1
 
 
 @pytest.mark.anyio

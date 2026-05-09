@@ -359,6 +359,7 @@ class PaperMarketRunner:
         result = parse_precipitation_market(market.question)
         if not result.success or result.threshold_value is None:
             self._skip("parse_failed")
+            self._skip(self._parse_failure_skip_reason(result.error))
             return None
         geocoded_location = await resolve_location_for_market(result.location_name or "")
         if geocoded_location is None:
@@ -466,3 +467,18 @@ class PaperMarketRunner:
 
     def _skip(self, reason: str) -> None:
         self._skipped[reason] += 1
+
+    @staticmethod
+    def _parse_failure_skip_reason(error: str | None) -> str:
+        if not error:
+            return "parse_failed_unknown"
+        lowered = error.lower()
+        if "expected a precipitation threshold question" in lowered:
+            return "parse_failed_not_precipitation"
+        if "missing numeric threshold" in lowered:
+            return "parse_failed_missing_threshold"
+        if "threshold unit must be inches or millimeters" in lowered:
+            return "parse_failed_unsupported_unit"
+        if "unsupported precipitation question wording" in lowered:
+            return "parse_failed_unsupported_wording"
+        return "parse_failed_unknown"

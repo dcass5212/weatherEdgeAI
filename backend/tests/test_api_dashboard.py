@@ -7,6 +7,7 @@ from app.db.models import (
     EVRecommendation,
     Market,
     MarketPriceSnapshot,
+    PaperRunnerRun,
     PaperTrade,
     ParsedMarket,
     Prediction,
@@ -23,6 +24,7 @@ def test_dashboard_summary_starts_empty(client: TestClient) -> None:
     assert body["recent_markets"] == []
     assert body["opportunities"] == []
     assert body["open_paper_trades"] == []
+    assert body["recent_paper_runs"] == []
     assert body["evaluation_summary"]["source"] == "seed_fixture"
     assert body["evaluation_summary"]["status"] == "completed"
     assert body["evaluation_summary"]["num_predictions"] == 3
@@ -129,6 +131,25 @@ def test_dashboard_summary_returns_paper_trading_inspection_chain(
     db_session.add_all([trade, outcome])
     db_session.commit()
 
+    runner_run = PaperRunnerRun(
+        status="completed",
+        source="polymarket",
+        started_at=datetime(2026, 5, 5, 12, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 5, 5, 12, 1, tzinfo=timezone.utc),
+        config_json={"create_trades": False, "max_trades": 1},
+        discovered=25,
+        processed=10,
+        parsed=3,
+        forecasts_created=2,
+        predictions_created=2,
+        recommendations_created=2,
+        paper_trades_created=0,
+        skipped_json={"missing_coordinates": 4, "wide_spread": 1},
+        errors_json=[],
+    )
+    db_session.add(runner_run)
+    db_session.commit()
+
     response = client.get("/dashboard/summary")
 
     assert response.status_code == 200
@@ -140,6 +161,7 @@ def test_dashboard_summary_returns_paper_trading_inspection_chain(
     assert summary["price_status"] == "supported"
     assert summary["unsupported_reasons"] == []
     assert summary["has_public_source_error"] is False
+    assert summary["source_error_label"] is None
     assert summary["latest_price_snapshot_id"] == price_snapshot.id
     assert summary["latest_parsed_market_id"] == parsed_market.id
     assert summary["latest_forecast_snapshot_id"] == forecast.id
@@ -171,6 +193,20 @@ def test_dashboard_summary_returns_paper_trading_inspection_chain(
     assert len(body["open_paper_trades"]) == 1
     assert body["open_paper_trades"][0]["id"] == trade.id
     assert body["open_paper_trades"][0]["status"] == "OPEN"
+
+    assert len(body["recent_paper_runs"]) == 1
+    paper_run = body["recent_paper_runs"][0]
+    assert paper_run["id"] == runner_run.id
+    assert paper_run["status"] == "completed"
+    assert paper_run["source"] == "polymarket"
+    assert paper_run["dry_run"] is True
+    assert paper_run["discovered"] == 25
+    assert paper_run["processed"] == 10
+    assert paper_run["parsed"] == 3
+    assert paper_run["recommendations_created"] == 2
+    assert paper_run["paper_trades_created"] == 0
+    assert paper_run["skipped"] == {"missing_coordinates": 4, "wide_spread": 1}
+    assert paper_run["errors"] == []
 
     evaluation = body["evaluation_summary"]
     assert evaluation["source"] == "persisted_records"
@@ -217,3 +253,41 @@ def test_dashboard_summary_exposes_partial_source_diagnostics(
     assert summary["price_status"] == "partial"
     assert summary["unsupported_reasons"] == ["non_binary_outcomes", "missing_binary_yes_no_prices"]
     assert summary["has_public_source_error"] is True
+    assert summary["source_error_label"] == "rate_limited"
+
+
+def test_dashboard_summary_labels_stale_supported_source_errors_as_stored_price(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    market = Market(
+        source="polymarket",
+        source_market_id="dashboard-stale-market",
+        condition_id="dashboard-stale-condition",
+        question="Will New York City get more than 1 inch of rain tomorrow?",
+        category="weather",
+        active=True,
+        closed=False,
+        source_diagnostics={
+            "price_status": "stale_supported",
+            "unsupported_reasons": ["source_refresh_failed"],
+            "fallback_price_snapshot_used": True,
+            "public_source_error": {
+                "endpoint": "/prices/dashboard-stale-condition",
+                "reason": "http_status_error",
+                "attempts": 3,
+                "status_code": 404,
+                "retryable": False,
+            },
+        },
+    )
+    db_session.add(market)
+    db_session.commit()
+
+    response = client.get("/dashboard/summary")
+
+    assert response.status_code == 200
+    summary = response.json()["recent_markets"][0]
+    assert summary["price_status"] == "stale_supported"
+    assert summary["has_public_source_error"] is True
+    assert summary["source_error_label"] == "using stored price"

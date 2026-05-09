@@ -155,6 +155,10 @@ h2 {
   margin-bottom: 16px;
 }
 
+.paperRunsSection {
+  margin-bottom: 16px;
+}
+
 .sectionHeader {
   display: flex;
   align-items: center;
@@ -300,7 +304,8 @@ tbody tr:last-child td {
 }
 
 .priceStatus,
-.sourceWarning {
+.sourceWarning,
+.sourceNotice {
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -319,6 +324,13 @@ tbody tr:last-child td {
   border-color: #8db09b;
   background: #edf7f0;
   color: #215c38;
+}
+
+.priceStatus-stale_supported,
+.sourceNotice {
+  border-color: #8fb0bc;
+  background: #eef8fb;
+  color: #2f6372;
 }
 
 .priceStatus-partial {
@@ -439,6 +451,120 @@ tbody tr:last-child td {
   padding: 22px 16px;
 }
 
+.runnerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.runnerRun {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid #edf1ee;
+  padding: 16px;
+}
+
+.runnerRun:nth-child(odd) {
+  border-right: 1px solid #edf1ee;
+}
+
+.runnerRun:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.runnerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runnerHeader div {
+  display: grid;
+  gap: 3px;
+}
+
+.runnerHeader span {
+  color: #66766d;
+  font-size: 0.78rem;
+}
+
+.runStatus {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid #d5ddd8;
+  border-radius: 6px;
+  color: #53635a;
+  font-size: 0.72rem;
+  font-weight: 750;
+  padding: 0 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.runStatus-completed {
+  border-color: #8db09b;
+  background: #edf7f0;
+  color: #215c38;
+}
+
+.runStatus-failed {
+  border-color: #d7a8a1;
+  background: #fff1ef;
+  color: #8a3428;
+}
+
+.runStatus-running {
+  border-color: #c8b36c;
+  background: #fff9df;
+  color: #6e570e;
+}
+
+.runnerMetrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.runnerMetrics div {
+  min-height: 56px;
+  border: 1px solid #edf1ee;
+  border-radius: 6px;
+  padding: 9px;
+}
+
+.runnerMetrics dt {
+  color: #697970;
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.runnerMetrics dd {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  font-weight: 750;
+}
+
+.runnerDetail {
+  display: grid;
+  gap: 4px;
+  color: #607168;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.runnerDetail small {
+  color: #607168;
+  font-size: 0.78rem;
+}
+
+.runnerDetail .errorText {
+  color: #8a3428;
+}
+
 .pageState {
   display: grid;
   place-items: center;
@@ -469,8 +595,25 @@ tbody tr:last-child td {
   .statsGrid,
   .metricGrid,
   .calibrationGrid,
+  .runnerGrid,
   .split {
     grid-template-columns: 1fr;
+  }
+
+  .runnerRun:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .runnerRun:nth-last-child(-n + 2) {
+    border-bottom: 1px solid #edf1ee;
+  }
+
+  .runnerRun:last-child {
+    border-bottom: 0;
+  }
+
+  .runnerMetrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .record {

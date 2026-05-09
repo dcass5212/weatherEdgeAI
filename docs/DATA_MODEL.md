@@ -231,6 +231,7 @@ Important fields:
 Design note:
 
 - These records make automated paper trading inspectable without implying live execution. They are operational run logs, not positions or orders.
+- `GET /paper-runner/diagnostics` aggregates these run records with market `source_diagnostics` so reviewers can inspect skipped-market reasons, unsupported public price payloads, stale-price fallback, and recent workflow errors without rerunning public data collection.
 
 ## Lifecycle Of A Market
 

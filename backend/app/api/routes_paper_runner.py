@@ -5,12 +5,15 @@ workflow. They create simulated paper trades only; live execution remains out
 of scope for this API.
 """
 
+from collections import Counter
+from typing import Any
+
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import PaperRunnerRun
+from app.db.models import Market, PaperRunnerRun
 from app.db.session import get_db
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, run_paper_market_once_recorded
 
@@ -53,6 +56,77 @@ class PaperRunnerRunRead(BaseModel):
     report: dict | None
 
 
+class PaperRunnerSkipReasonSummary(BaseModel):
+    reason: str
+    count: int
+    category: str
+    label: str
+
+
+class PaperRunnerUnsupportedPriceReasonSummary(BaseModel):
+    reason: str
+    count: int
+
+
+class PaperRunnerRecentError(BaseModel):
+    run_id: int
+    message: str
+
+
+class PaperRunnerDiagnosticsRead(BaseModel):
+    source: str | None
+    run_count: int
+    latest_run_ids: list[int]
+    discovered: int
+    processed: int
+    parsed: int
+    forecasts_created: int
+    predictions_created: int
+    recommendations_created: int
+    paper_trades_created: int
+    skip_reasons: list[PaperRunnerSkipReasonSummary]
+    price_status_counts: dict[str, int]
+    unsupported_price_reasons: list[PaperRunnerUnsupportedPriceReasonSummary]
+    error_count: int
+    recent_errors: list[PaperRunnerRecentError]
+
+
+SKIP_REASON_CATEGORIES = {
+    "missing_price_snapshot": ("price_data", "No price snapshot"),
+    "missing_binary_prices": ("price_data", "Missing binary YES/NO prices"),
+    "price_refresh_failed": ("price_data", "Public price refresh failed"),
+    "price_refresh_failed_used_stored_snapshot": ("price_data", "Used stored price after refresh failure"),
+    "price_refresh_unsupported": ("price_data", "Unsupported fresh price payload"),
+    "liquidity_below_min": ("eligibility_filter", "Liquidity below configured minimum"),
+    "spread_above_max": ("eligibility_filter", "Spread above configured maximum"),
+    "parse_failed": ("parser", "Parser could not structure question"),
+    "parse_failed_not_precipitation": ("parser", "Question was not a precipitation market"),
+    "parse_failed_missing_threshold": ("parser", "Question had no numeric threshold"),
+    "parse_failed_unsupported_unit": ("parser", "Question used an unsupported precipitation unit"),
+    "parse_failed_unsupported_wording": ("parser", "Question used unsupported precipitation wording"),
+    "parse_failed_unknown": ("parser", "Parser failed for an uncategorized reason"),
+    "missing_coordinates": ("geocoding", "Parsed location has no coordinates"),
+    "workflow_error": ("provider_or_workflow_error", "Workflow/provider error"),
+    "trade_creation_disabled": ("paper_trading", "Dry run disabled trade creation"),
+    "not_actionable": ("paper_trading", "Recommendation was not actionable"),
+    "open_trade_exists": ("paper_trading", "Open paper trade already exists"),
+    "max_trades_reached": ("paper_trading", "Max paper-trade cap reached"),
+}
+
+
+def _skip_reason_summary(reason: str, count: int) -> PaperRunnerSkipReasonSummary:
+    category, label = SKIP_REASON_CATEGORIES.get(reason, ("other", reason.replace("_", " ").title()))
+    return PaperRunnerSkipReasonSummary(reason=reason, count=count, category=category, label=label)
+
+
+def _json_dict(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _json_list(value: Any) -> list:
+    return value if isinstance(value, list) else []
+
+
 def _config_from_request(payload: PaperRunnerRunRequest) -> PaperMarketRunnerConfig:
     return PaperMarketRunnerConfig(
         source=payload.source,
@@ -92,6 +166,52 @@ def _read_model(run: PaperRunnerRun) -> PaperRunnerRunRead:
     )
 
 
+def _diagnostics_model(runs: list[PaperRunnerRun], markets: list[Market], source: str | None) -> PaperRunnerDiagnosticsRead:
+    skipped = Counter()
+    price_statuses = Counter()
+    unsupported_price_reasons = Counter()
+    recent_errors: list[PaperRunnerRecentError] = []
+
+    for run in runs:
+        skipped.update({str(reason): int(count) for reason, count in _json_dict(run.skipped_json).items()})
+        for message in _json_list(run.errors_json):
+            if isinstance(message, str):
+                recent_errors.append(PaperRunnerRecentError(run_id=run.id, message=message))
+
+    for market in markets:
+        diagnostics = _json_dict(market.source_diagnostics)
+        price_status = diagnostics.get("price_status")
+        if isinstance(price_status, str):
+            price_statuses[price_status] += 1
+        for reason in _json_list(diagnostics.get("unsupported_reasons")):
+            if isinstance(reason, str):
+                unsupported_price_reasons[reason] += 1
+
+    return PaperRunnerDiagnosticsRead(
+        source=source,
+        run_count=len(runs),
+        latest_run_ids=[run.id for run in runs[:10]],
+        discovered=sum(run.discovered for run in runs),
+        processed=sum(run.processed for run in runs),
+        parsed=sum(run.parsed for run in runs),
+        forecasts_created=sum(run.forecasts_created for run in runs),
+        predictions_created=sum(run.predictions_created for run in runs),
+        recommendations_created=sum(run.recommendations_created for run in runs),
+        paper_trades_created=sum(run.paper_trades_created for run in runs),
+        skip_reasons=[
+            _skip_reason_summary(reason, count)
+            for reason, count in sorted(skipped.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        price_status_counts=dict(sorted(price_statuses.items())),
+        unsupported_price_reasons=[
+            PaperRunnerUnsupportedPriceReasonSummary(reason=reason, count=count)
+            for reason, count in sorted(unsupported_price_reasons.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        error_count=len(recent_errors),
+        recent_errors=recent_errors[:10],
+    )
+
+
 @router.post("/run-once", response_model=PaperRunnerRunRead, status_code=201)
 async def run_paper_runner_once(payload: PaperRunnerRunRequest, db: Session = Depends(get_db)) -> PaperRunnerRunRead:
     try:
@@ -112,6 +232,23 @@ def list_paper_runner_runs(
         query = query.where(PaperRunnerRun.status == status)
     query = query.order_by(PaperRunnerRun.started_at.desc(), PaperRunnerRun.id.desc()).limit(limit)
     return [_read_model(run) for run in db.scalars(query)]
+
+
+@router.get("/diagnostics", response_model=PaperRunnerDiagnosticsRead)
+def get_paper_runner_diagnostics(
+    limit: int = Query(default=20, gt=0, le=100),
+    source: str | None = "polymarket",
+    db: Session = Depends(get_db),
+) -> PaperRunnerDiagnosticsRead:
+    run_query = select(PaperRunnerRun)
+    market_query = select(Market)
+    if source is not None:
+        run_query = run_query.where(PaperRunnerRun.source == source)
+        market_query = market_query.where(Market.source == source)
+    run_query = run_query.order_by(PaperRunnerRun.started_at.desc(), PaperRunnerRun.id.desc()).limit(limit)
+    runs = list(db.scalars(run_query))
+    markets = list(db.scalars(market_query))
+    return _diagnostics_model(runs, markets, source)
 
 
 @router.get("/runs/{run_id}", response_model=PaperRunnerRunRead)

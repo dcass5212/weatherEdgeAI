@@ -6,6 +6,12 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Added
 
+- Added `GET /paper-runner/diagnostics` to summarize recent public paper-run validation with workflow counts, categorized skip reasons, source price-status counts, unsupported public price reasons, and recent workflow/provider errors.
+- Added detailed parser skip codes to the public paper runner, preserving broad `parse_failed` counts while distinguishing not-precipitation, missing-threshold, unsupported-unit, unsupported-wording, and unknown parser failures.
+- Added focused paper-runner API and orchestration tests for diagnostics aggregation and detailed parser skip recording.
+- Added `source_error_label` to dashboard market summaries so recoverable stale-price fallback can be displayed separately from hard source failures.
+- Added recent public paper-runner history to `GET /dashboard/summary`, including status, dry-run mode, workflow counts, skip reasons, and errors.
+- Added a frontend `Public Paper Runs` panel and safe `Run Public Dry Run` action backed by `POST /paper-runner/run-once` with `dry_run: true`.
 - Added parser support for public one-sided precipitation wording with less-than thresholds and millimeter units, including compact `240mm` style thresholds.
 - Added baseline model and observed-outcome support for `<` and `<=` one-sided precipitation operators.
 - Added focused parser, baseline model, and outcome-resolution tests for less-than and millimeter threshold behavior.
@@ -61,6 +67,9 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Changed
 
+- Updated README, API workflow, roadmap, and data-model docs for the new public paper-run diagnostics report endpoint.
+- Updated frontend source diagnostics to label `stale_supported` refresh failures as `using stored price` instead of a red generic source error.
+- Updated README, roadmap, API workflow, and local demo docs for dashboard-visible paper-runner history and the public dry-run dashboard action.
 - Updated `scripts/paper_market_runner.py` so each CLI pass persists a durable run record while preserving one-shot defaults and bounded loop behavior.
 - Updated README, API workflow, local demo, data-model, roadmap, and trading-mode docs for persisted paper runner runs and the new one-shot API.
 - Updated README, data-source, API workflow, and roadmap docs for search-oriented public market discovery.
@@ -95,6 +104,14 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_api_paper_runner.py`; all 10 focused paper-runner diagnostics tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; all 4 dashboard API tests passed after refining source diagnostic labels.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after refining source diagnostic labels.
+- Ran `.\.venv\Scripts\pytest.exe`; all 127 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; all 3 dashboard API tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after adding paper-runner dashboard history.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_paper_runner.py tests\test_paper_market_runner.py`; all 8 focused paper-runner tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 126 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_baseline_model.py tests\test_backtesting.py`; all 31 focused parser/model/backtesting tests passed.
 - Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run`; public dry-run no longer reported `parse_failed` for the sampled one-sided precipitation market and now skips it at the expected fixture-geocoding boundary with `missing_coordinates=1`.
 - Ran `.\.venv\Scripts\pytest.exe`; all 126 backend tests passed.

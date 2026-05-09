@@ -5,10 +5,12 @@ import {
   EvaluationSummary,
   HealthStatus,
   Opportunity,
+  PaperRunnerRun,
   PaperTrade,
   WorkflowStatus,
   fetchDashboardSummary,
   fetchHealth,
+  runPublicPaperDryRun,
   runPaperWorkflow,
 } from "./api";
 
@@ -90,14 +92,11 @@ function Pipeline({ status }: { status: WorkflowStatus }) {
 
 function StatCards({ summary }: { summary: DashboardSummary }) {
   const stats = useMemo(() => {
-    const completed = summary.recent_markets.filter(
-      (market) => market.workflow_status.next_action === "monitor_paper_trade",
-    ).length;
     return [
       { label: "Markets", value: summary.recent_markets.length.toString() },
       { label: "Paper Opportunities", value: summary.opportunities.length.toString() },
       { label: "Open Paper Trades", value: summary.open_paper_trades.length.toString() },
-      { label: "Monitoring", value: completed.toString() },
+      { label: "Paper Runs", value: summary.recent_paper_runs.length.toString() },
     ];
   }, [summary]);
 
@@ -194,7 +193,15 @@ function MarketTable({ markets }: { markets: DashboardMarketSummary[] }) {
                   <span className={`priceStatus priceStatus-${market.price_status ?? "unknown"}`}>
                     {market.price_status ?? "unknown"}
                   </span>
-                  {market.has_public_source_error ? <span className="sourceWarning">source error</span> : null}
+                  {market.has_public_source_error && market.source_error_label ? (
+                    <span
+                      className={
+                        market.price_status === "stale_supported" ? "sourceNotice" : "sourceWarning"
+                      }
+                    >
+                      {market.source_error_label}
+                    </span>
+                  ) : null}
                   {market.unsupported_reasons.length > 0 ? (
                     <small>{market.unsupported_reasons.map(formatReason).join(", ")}</small>
                   ) : null}
@@ -303,6 +310,68 @@ function TradeList({ trades }: { trades: PaperTrade[] }) {
   );
 }
 
+function PaperRunnerRuns({ runs }: { runs: PaperRunnerRun[] }) {
+  if (runs.length === 0) {
+    return <EmptyState text="No public paper-runner history is currently stored." />;
+  }
+
+  return (
+    <div className="runnerGrid">
+      {runs.map((run) => {
+        const skipEntries = Object.entries(run.skipped).filter(([, count]) => count > 0);
+        return (
+          <article className="runnerRun" key={run.id}>
+            <div className="runnerHeader">
+              <div>
+                <strong>Run #{run.id}</strong>
+                <span>{run.dry_run ? "Dry run" : "Simulated trades enabled"}</span>
+              </div>
+              <span className={`runStatus runStatus-${run.status}`}>{run.status}</span>
+            </div>
+            <dl className="runnerMetrics">
+              <div>
+                <dt>Discovered</dt>
+                <dd>{run.discovered}</dd>
+              </div>
+              <div>
+                <dt>Processed</dt>
+                <dd>{run.processed}</dd>
+              </div>
+              <div>
+                <dt>Parsed</dt>
+                <dd>{run.parsed}</dd>
+              </div>
+              <div>
+                <dt>Forecasts</dt>
+                <dd>{run.forecasts_created}</dd>
+              </div>
+              <div>
+                <dt>Signals</dt>
+                <dd>{run.recommendations_created}</dd>
+              </div>
+              <div>
+                <dt>Trades</dt>
+                <dd>{run.paper_trades_created}</dd>
+              </div>
+            </dl>
+            <div className="runnerDetail">
+              <span>
+                {run.source} / {formatDate(run.started_at)}
+              </span>
+              {skipEntries.length > 0 ? (
+                <small>Skips: {skipEntries.map(([reason, count]) => `${formatReason(reason)} ${count}`).join(", ")}</small>
+              ) : (
+                <small>No skip reasons recorded.</small>
+              )}
+              {run.errors.length > 0 ? <small className="errorText">Errors: {run.errors.join("; ")}</small> : null}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function EmptyState({ text }: { text: string }) {
   return <div className="emptyState">{text}</div>;
 }
@@ -313,7 +382,9 @@ function AppShell({
   loadedAt,
   onRefresh,
   onRunPaperWorkflow,
+  onRunPublicDryRun,
   isRunningWorkflow,
+  isRunningPublicRun,
   actionMessage,
 }: {
   summary: DashboardSummary;
@@ -321,9 +392,12 @@ function AppShell({
   loadedAt: Date;
   onRefresh: () => void;
   onRunPaperWorkflow: () => void;
+  onRunPublicDryRun: () => void;
   isRunningWorkflow: boolean;
+  isRunningPublicRun: boolean;
   actionMessage: string | null;
 }) {
+  const isActionRunning = isRunningWorkflow || isRunningPublicRun;
   return (
     <main>
       <header className="topbar">
@@ -333,8 +407,11 @@ function AppShell({
         </div>
         <div className="topbarMeta">
           <span className={health?.status === "ok" ? "health ok" : "health"}>{health?.service ?? "API unavailable"}</span>
-          <button disabled={isRunningWorkflow} onClick={onRunPaperWorkflow} type="button">
+          <button disabled={isActionRunning} onClick={onRunPaperWorkflow} type="button">
             {isRunningWorkflow ? "Running..." : "Run Paper Demo"}
+          </button>
+          <button disabled={isActionRunning} onClick={onRunPublicDryRun} type="button">
+            {isRunningPublicRun ? "Running..." : "Run Public Dry Run"}
           </button>
           <button onClick={onRefresh} type="button">
             Refresh
@@ -345,6 +422,14 @@ function AppShell({
 
       <StatCards summary={summary} />
       <EvaluationPanel evaluation={summary.evaluation_summary} />
+
+      <section className="section paperRunsSection">
+        <div className="sectionHeader">
+          <h2>Public Paper Runs</h2>
+          <span>Recent dry-run and paper-runner history</span>
+        </div>
+        <PaperRunnerRuns runs={summary.recent_paper_runs} />
+      </section>
 
       <section className="section">
         <div className="sectionHeader">
@@ -380,6 +465,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunningWorkflow, setIsRunningWorkflow] = useState(false);
+  const [isRunningPublicRun, setIsRunningPublicRun] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   async function loadDashboard() {
@@ -417,6 +503,22 @@ export function App() {
     }
   }
 
+  async function runPublicDryRun() {
+    setIsRunningPublicRun(true);
+    setActionMessage(null);
+    try {
+      const result = await runPublicPaperDryRun();
+      await loadDashboard();
+      setActionMessage(
+        `Public dry run #${result.id} ${result.status}: discovered ${result.discovered}, processed ${result.processed}, simulated trades ${result.paper_trades_created}.`,
+      );
+    } catch (caught) {
+      setActionMessage(caught instanceof Error ? caught.message : "Unable to run public paper dry run");
+    } finally {
+      setIsRunningPublicRun(false);
+    }
+  }
+
   if (isLoading && summary === null) {
     return <div className="pageState">Loading dashboard...</div>;
   }
@@ -437,6 +539,7 @@ export function App() {
           recent_markets: [],
           opportunities: [],
           open_paper_trades: [],
+          recent_paper_runs: [],
           evaluation_summary: {
             model_version: "baseline_precip_v1",
             source: "unavailable",
@@ -458,7 +561,9 @@ export function App() {
       loadedAt={loadedAt}
       onRefresh={() => void loadDashboard()}
       onRunPaperWorkflow={() => void runDemoWorkflow()}
+      onRunPublicDryRun={() => void runPublicDryRun()}
       isRunningWorkflow={isRunningWorkflow}
+      isRunningPublicRun={isRunningPublicRun}
       actionMessage={actionMessage}
     />
   );

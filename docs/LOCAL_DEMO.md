@@ -52,7 +52,7 @@ Expected:
 
 ## Frontend Dashboard
 
-The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, and open paper trades from `GET /dashboard/summary`. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It does not call external providers or expose live trading.
+The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open paper trades, and recent public paper-runner history from `GET /dashboard/summary`. Recoverable public price-refresh failures that continue from stored discovery-time prices are labeled as `using stored price` instead of a hard source failure. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It also includes a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so public discovery and scoring can be inspected without creating trades. It does not expose live trading.
 
 Start FastAPI first, then run the frontend from a second terminal:
 
@@ -182,6 +182,7 @@ Current behavior:
 - Skips an actionable side when an open paper trade already exists for that market and side.
 - Prints discovery, workflow, skip, and error counts.
 - Persists each pass in `paper_runner_runs` with the config, status, counts, skip reasons, errors, and compact report.
+- Surfaces recent persisted runs in the frontend dashboard, including dry-run status, workflow counts, skip reasons, and errors.
 - Does not place real orders, sign transactions, use authenticated trading APIs, or create live execution records.
 
 You can also trigger one one-shot pass through the API:

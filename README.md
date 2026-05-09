@@ -230,6 +230,7 @@ cd C:\weatherEdgeAI\backend
 
 The runner is paper-only. It uses public market data, Open-Meteo forecasts, stored model/EV logic, and simulated paper trades. It does not call authenticated trading APIs, place real orders, sign transactions, or create live execution records.
 Each runner pass now persists a `paper_runner_runs` record with the run configuration, counts, skip reasons, errors, and final status so automated paper-market validation remains inspectable after the process exits.
+`GET /paper-runner/diagnostics` summarizes recent public paper-run validation across runs, including skip-reason categories, source price status counts, unsupported public price reasons, and recent workflow/provider errors.
 
 Run the deterministic seed-fixture backtest through the API after the server is running:
 
@@ -266,7 +267,7 @@ Market detail reads include a computed `workflow_status` object that shows compl
 
 `GET /dashboard/summary` provides a frontend-ready summary with recent market workflow rows, compact latest signal values, paper-buy opportunities, open paper trades, and a compact backtest/calibration summary. It does not refresh external data or create execution records.
 
-The `frontend/` app is a Vite + React dashboard for that summary endpoint. It shows the market pipeline, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, calibration buckets, paper opportunities, and open paper trades. It also has a `Run Paper Demo` button backed by `POST /demo/paper-workflow`, which uses only mock discovery, fixture forecasts, baseline modeling, EV evaluation, and simulated paper trades. It does not expose live-trading controls.
+The `frontend/` app is a Vite + React dashboard for that summary endpoint. It shows the market pipeline, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, calibration buckets, paper opportunities, open paper trades, and recent public paper-runner history. It has a `Run Paper Demo` button backed by `POST /demo/paper-workflow`, which uses only mock discovery, fixture forecasts, baseline modeling, EV evaluation, and simulated paper trades. It also has a `Run Public Dry Run` button backed by `POST /paper-runner/run-once` with `dry_run: true`, so reviewers can inspect public-market validation counts, skips, and errors without creating trades. It does not expose live-trading controls.
 
 Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh public source payloads and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, liquidity, volume, status, and resolution fields without enabling authenticated trading.
 
@@ -313,6 +314,7 @@ See `docs/API_WORKFLOWS.md` and `docs/DATA_SOURCES.md` for setup, failure modes,
 - `POST /paper-runner/run-once`
 - `GET /paper-runner/runs`
 - `GET /paper-runner/runs/{run_id}`
+- `GET /paper-runner/diagnostics`
 - `POST /backtests/run`
 - `POST /backtests/resolved-outcomes`
 - `GET /backtests/resolved-outcomes`

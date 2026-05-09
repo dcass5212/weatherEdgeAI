@@ -22,6 +22,7 @@ export type DashboardMarketSummary = {
   price_status: string | null;
   unsupported_reasons: string[];
   has_public_source_error: boolean;
+  source_error_label: string | null;
   active: boolean;
   closed: boolean;
   latest_price_snapshot_id: number | null;
@@ -95,11 +96,30 @@ export type EvaluationSummary = {
   calibration_buckets: CalibrationBucket[];
 };
 
+export type PaperRunnerRun = {
+  id: number;
+  status: string;
+  source: string;
+  started_at: string;
+  completed_at: string | null;
+  dry_run: boolean;
+  discovered: number;
+  processed: number;
+  parsed: number;
+  forecasts_created: number;
+  predictions_created: number;
+  recommendations_created: number;
+  paper_trades_created: number;
+  skipped: Record<string, number>;
+  errors: string[];
+};
+
 export type DashboardSummary = {
   recent_markets: DashboardMarketSummary[];
   opportunities: Opportunity[];
   open_paper_trades: PaperTrade[];
   evaluation_summary: EvaluationSummary;
+  recent_paper_runs: PaperRunnerRun[];
 };
 
 export type HealthStatus = {
@@ -117,6 +137,14 @@ export type PaperWorkflowResult = {
   recommendation: string;
   steps_completed: string[];
   message: string;
+};
+
+export type PaperRunnerRunResult = PaperRunnerRun & {
+  config: Record<string, unknown>;
+  created: number;
+  updated: number;
+  price_snapshots_created: number;
+  report: Record<string, unknown> | null;
 };
 
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -140,5 +168,19 @@ export async function runPaperWorkflow(): Promise<PaperWorkflowResult> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ quantity: 10 }),
+  });
+}
+
+export async function runPublicPaperDryRun(): Promise<PaperRunnerRunResult> {
+  return readJson<PaperRunnerRunResult>("/paper-runner/run-once", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dry_run: true,
+      max_trades: 1,
+      quantity: 1,
+      min_liquidity: 100,
+      max_spread: 0.15,
+    }),
   });
 }
