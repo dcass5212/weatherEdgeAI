@@ -50,6 +50,26 @@ def test_parse_or_more_wording() -> None:
     assert result.threshold_value == 0.5
 
 
+def test_parse_less_than_wording() -> None:
+    result = parse_precipitation_market("Will NYC have less than 2 inches of precipitation in May?")
+
+    assert result.success is True
+    assert result.location_name == "NYC"
+    assert result.operator == "<"
+    assert result.threshold_value == 2
+    assert result.threshold_unit == "inches"
+
+
+def test_parse_millimeter_or_more_wording() -> None:
+    result = parse_precipitation_market("Will Hong Kong have 240mm or more of precipitation in May?")
+
+    assert result.success is True
+    assert result.location_name == "Hong Kong"
+    assert result.operator == ">="
+    assert result.threshold_value == 240
+    assert result.threshold_unit == "mm"
+
+
 def test_parse_there_be_rain_in_location_wording() -> None:
     result = parse_precipitation_market("Will there be more than 1 inch of rain in New York City on May 5?")
 
@@ -99,7 +119,7 @@ def test_precipitation_question_without_threshold_returns_clear_failure() -> Non
 
 
 def test_precipitation_question_without_supported_unit_returns_clear_failure() -> None:
-    result = parse_precipitation_market("Will Chicago get more than 10 millimeters of rain tomorrow?")
+    result = parse_precipitation_market("Will Chicago get more than 10 centimeters of rain tomorrow?")
 
     assert result.success is False
-    assert result.error == "Unsupported precipitation question: threshold unit must be inches."
+    assert result.error == "Unsupported precipitation question: threshold unit must be inches or millimeters."

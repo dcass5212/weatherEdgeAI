@@ -26,10 +26,13 @@ def estimate_precipitation_probability(
     if forecast_precip_total is None:
         return 0.5, "low"
 
-    if operator not in {">", ">="}:
-        raise ValueError("baseline_precip_v1 only supports > and >= operators")
+    if operator not in {">", ">=", "<", "<="}:
+        raise ValueError("baseline_precip_v1 only supports one-sided threshold operators")
 
-    difference = forecast_precip_total - threshold_value
+    if operator in {"<", "<="}:
+        difference = threshold_value - forecast_precip_total
+    else:
+        difference = forecast_precip_total - threshold_value
     if difference >= 0.5:
         return 0.75, "medium"
     if difference >= 0.1:

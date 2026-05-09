@@ -14,7 +14,8 @@ from app.markets.schemas import ParsedMarketResult
 PARSER_VERSION = "regex_precip_v1"
 
 THRESHOLD_PATTERN = r"(?P<threshold>\d+(?:\.\d+)?)"
-UNIT_PATTERN = r"(?P<unit>inch|inches|in)"
+UNIT_PATTERN = r"(?P<unit>inch|inches|in|mm|millimeter|millimeters)"
+THRESHOLD_UNIT_PATTERN = rf"{THRESHOLD_PATTERN}\s*{UNIT_PATTERN}"
 PRECIP_WORD_PATTERN = r"(?:rain|precipitation|precip)"
 DATE_PATTERN = r"(?:\s+(?:on\s+)?(?P<date>.+?))?"
 LOCATION_DATE_PATTERN = r"(?:\s+on\s+(?P<date>.+?))?"
@@ -26,14 +27,19 @@ OPERATOR_PHRASES = {
     "greater than": ">",
     "at least": ">=",
     "no less than": ">=",
+    "less than": "<",
+    "under": "<",
+    "below": "<",
+    "at most": "<=",
+    "no more than": "<=",
 }
 
 PRECIPITATION_PATTERNS: list[tuple[re.Pattern[str], str | None]] = [
     (
         re.compile(
             rf"^Will (?P<location>.+?) (?:get|receive|see|record|have) "
-            rf"(?P<operator_phrase>more than|over|above|greater than|at least|no less than) "
-            rf"{THRESHOLD_PATTERN} {UNIT_PATTERN} of {PRECIP_WORD_PATTERN}{DATE_PATTERN}\??$",
+            rf"(?P<operator_phrase>more than|over|above|greater than|at least|no less than|less than|under|below|at most|no more than) "
+            rf"{THRESHOLD_UNIT_PATTERN} of {PRECIP_WORD_PATTERN}{DATE_PATTERN}\??$",
             re.IGNORECASE,
         ),
         None,
@@ -41,15 +47,15 @@ PRECIPITATION_PATTERNS: list[tuple[re.Pattern[str], str | None]] = [
     (
         re.compile(
             rf"^Will (?P<location>.+?) (?:get|receive|see|record|have) "
-            rf"{THRESHOLD_PATTERN} {UNIT_PATTERN} or more of {PRECIP_WORD_PATTERN}{DATE_PATTERN}\??$",
+            rf"{THRESHOLD_UNIT_PATTERN} or more of {PRECIP_WORD_PATTERN}{DATE_PATTERN}\??$",
             re.IGNORECASE,
         ),
         ">=",
     ),
     (
         re.compile(
-            rf"^Will there be (?P<operator_phrase>more than|over|above|greater than|at least|no less than) "
-            rf"{THRESHOLD_PATTERN} {UNIT_PATTERN} of {PRECIP_WORD_PATTERN} in (?P<location>.+?){LOCATION_DATE_PATTERN}\??$",
+            rf"^Will there be (?P<operator_phrase>more than|over|above|greater than|at least|no less than|less than|under|below|at most|no more than) "
+            rf"{THRESHOLD_UNIT_PATTERN} of {PRECIP_WORD_PATTERN} in (?P<location>.+?){LOCATION_DATE_PATTERN}\??$",
             re.IGNORECASE,
         ),
         None,
@@ -102,8 +108,8 @@ def _unsupported_reason(question: str) -> str:
         return "Unsupported market question format: expected a precipitation threshold question."
     if not re.search(r"\d+(?:\.\d+)?", lowered):
         return "Unsupported precipitation question: missing numeric threshold."
-    if not re.search(r"\b(inch|inches|in)\b", lowered):
-        return "Unsupported precipitation question: threshold unit must be inches."
+    if not re.search(r"\b(inch|inches|in|mm|millimeter|millimeters)\b", lowered):
+        return "Unsupported precipitation question: threshold unit must be inches or millimeters."
     return (
         "Unsupported precipitation question wording. Supported examples include "
         "'more than 1 inch of rain', 'at least 0.5 inches of rain', and '1 inch or more of rain'."

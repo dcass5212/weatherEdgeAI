@@ -318,7 +318,7 @@ Current behavior:
 
 - Parses precipitation threshold questions.
 - Extracts location, metric, operator, threshold, unit, and target window when possible.
-- Supports common V1 precipitation wording such as `more than 1 inch of rain`, `over 1 inch of precipitation`, `at least 0.5 inches of rain`, `0.5 inches or more of rain`, and `more than 1 inch of rain in New York City`.
+- Supports common V1 precipitation wording such as `more than 1 inch of rain`, `over 1 inch of precipitation`, `at least 0.5 inches of rain`, `0.5 inches or more of rain`, `less than 2 inches of precipitation`, `240mm or more of precipitation`, and `more than 1 inch of rain in New York City`.
 - Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, and Chicago by default.
 - A broader Open-Meteo geocoding provider is available behind the same adapter when `GEOCODING_PROVIDER=open_meteo`.
 - Parsing does not create market price snapshots. Use market discovery or `POST /markets/{market_id}/price-snapshots/refresh` so strategy evaluation can trace prices to a source payload.
@@ -344,7 +344,7 @@ Expected response fields:
 Failure cases:
 
 - `404` when the market does not exist.
-- `422` when the question cannot be parsed into a supported precipitation market. Parser failures now distinguish non-precipitation questions, missing numeric thresholds, unsupported units, and unsupported precipitation wording.
+- `422` when the question cannot be parsed into a supported precipitation market. Parser failures now distinguish non-precipitation questions, missing numeric thresholds, unsupported units, and unsupported precipitation wording. Interval contracts such as `between 2 and 3 inches` are still intentionally unsupported until the model supports interval probabilities.
 - Parsed markets with unsupported locations can still be stored, but forecast creation will fail until coordinates are available.
 - `502` when an enabled external geocoding provider request fails.
 

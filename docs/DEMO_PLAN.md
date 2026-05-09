@@ -125,7 +125,7 @@ POST /markets/{market_id}/parse
 Explain:
 
 - The parser converts market wording into structured fields.
-- V1 focuses on precipitation threshold markets and supports common wording such as "more than", "over", "at least", and "or more".
+- V1 focuses on one-sided precipitation threshold markets and supports common wording such as "more than", "over", "at least", "or more", "less than", and millimeter thresholds.
 - Location coordinates are resolved through a deterministic fixture geocoder for the demo cities.
 - Rule-based parsing is intentional because it is inspectable and testable.
 
@@ -278,7 +278,7 @@ The key design choice is snapshotting. Market prices, weather forecasts, predict
 
 - The first frontend dashboard shows workflow status, latest signals, backtest/calibration context, stored opportunities, and open paper trades. It includes one safe paper-demo action; broader workflow controls are intentionally deferred.
 - Backtesting currently uses persisted outcomes or deterministic seed fixtures for reliable demos. Open-Meteo archive outcome resolution is implemented for parsed precipitation markets, and an optional credential-gated NOAA/NCEI CDO daily `PRCP` client is available for manual outcome resolution when `NOAA_CDO_TOKEN` is configured.
-- Parser support is limited to V1 precipitation threshold wording, with clearer failures for unsupported questions, missing thresholds, and unsupported units.
+- Parser support is limited to V1 one-sided precipitation threshold wording, with clearer failures for unsupported questions, missing thresholds, unsupported units, and interval/range contracts.
 - Location support uses a deterministic fixture geocoder for a few demo cities and should later add a broader provider.
 - Forecast normalization has initial fixture-backed edge-case coverage and should continue expanding with captured provider payloads.
 - Market price snapshot ingestion has fixture coverage for several public payload shapes, but should continue expanding as unsupported real responses are captured.

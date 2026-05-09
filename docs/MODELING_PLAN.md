@@ -18,6 +18,10 @@ Initial examples:
 
 - Will New York City get more than 1 inch of rain on May 5?
 - Will Chicago receive at least 0.5 inches of rain tomorrow?
+- Will NYC have less than 2 inches of precipitation in May?
+- Will Hong Kong have 240mm or more of precipitation in May?
+
+The current parser and baseline model support one-sided precipitation thresholds: `>`, `>=`, `<`, and `<=`, with inch and millimeter thresholds. Interval contracts such as `between 2 and 3 inches` remain out of scope until an interval probability model is added.
 
 ## Current Baseline
 
@@ -38,17 +42,17 @@ Inputs:
 Current behavior:
 
 - If forecast precipitation is missing, return `p_yes = 0.5` with low confidence.
-- If forecast total is meaningfully above the threshold, increase YES probability.
-- If forecast total is meaningfully below the threshold, decrease YES probability.
+- If the forecast is meaningfully on the YES side of the threshold, increase YES probability.
+- If the forecast is meaningfully on the NO side of the threshold, decrease YES probability.
 - Keep probabilities bounded between 0 and 1.
 
 Current probability bands:
 
-- Forecast at least 0.5 inches above threshold: `p_yes = 0.75`.
-- Forecast 0.1 to 0.5 inches above threshold: `p_yes = 0.60`.
-- Forecast within 0.1 inches of threshold: `p_yes = 0.50`.
-- Forecast 0.1 to 0.5 inches below threshold: `p_yes = 0.40`.
-- Forecast more than 0.5 inches below threshold: `p_yes = 0.25`.
+- Forecast at least 0.5 units on the YES side of the threshold: `p_yes = 0.75`.
+- Forecast 0.1 to 0.5 units on the YES side of the threshold: `p_yes = 0.60`.
+- Forecast within 0.1 units of the threshold: `p_yes = 0.50`.
+- Forecast 0.1 to 0.5 units on the NO side of the threshold: `p_yes = 0.40`.
+- Forecast more than 0.5 units on the NO side of the threshold: `p_yes = 0.25`.
 
 Purpose:
 

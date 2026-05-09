@@ -41,7 +41,7 @@ Implemented:
 - Parse route no longer creates demo fallback price snapshots; price provenance now comes from discovery or explicit refresh.
 - Event-level weather context matching for Polymarket-style discovery when child market questions rely on parent event metadata.
 - Fixture-backed diagnostics for malformed Gamma-style price fields that still expose usable liquidity or volume fields.
-- Expanded rule-based precipitation parser coverage for common threshold wording.
+- Expanded rule-based precipitation parser coverage for common threshold wording, including less-than thresholds and millimeter units.
 - Parser failure reasons for non-precipitation questions, missing thresholds, unsupported units, and unsupported precipitation wording.
 - Deterministic fixture geocoder for local demos and tests.
 - Optional Open-Meteo geocoding provider behind the geocoding adapter.
@@ -49,7 +49,7 @@ Implemented:
 - Open-Meteo forecast client support.
 - Forecast snapshot persistence.
 - Fixture-backed forecast normalization for mixed values, missing values, unit conversion, temperature summaries, and raw payload preservation.
-- Baseline precipitation probability model.
+- Baseline precipitation probability model for one-sided precipitation thresholds, including greater-than and less-than style markets.
 - Stored prediction outputs with model version, feature payload, parsed-market provenance, and forecast-snapshot provenance.
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
 - Market detail workflow status showing completed pipeline steps and the next recommended backend action.
@@ -87,7 +87,7 @@ Partially implemented:
 Known gaps:
 
 - Deterministic fixture geocoding remains the default for local demos and tests. Open-Meteo geocoding is available as an opt-in provider, but captured edge-case coverage should continue expanding.
-- Parser failure detail exists for common unsupported cases, but should keep improving as real unsupported market questions are captured.
+- Parser failure detail exists for common unsupported cases, and one-sided inch/mm threshold coverage has expanded from real public dry-run misses. Interval contracts such as `between 2 and 3 inches` remain unsupported until interval probability modeling exists.
 - Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including nested orderbook payloads, nested stats-only payloads, wrapped market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, empty orderbooks, and split fresh-price/stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
 - Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
 - Frontend UI has a dashboard with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, paper-trade inspection, and a safe `Run Paper Demo` action. Broader workflow controls remain a planned follow-up.
@@ -147,7 +147,7 @@ Remaining work:
 - Continue hardening market price snapshots during discovery and through the dedicated refresh endpoint as new fixtures reveal gaps.
 - Continue expanding public-source failure fixtures beyond the initial rate-limit, malformed JSON, and malformed payload coverage.
 - Remove or further isolate the parse-route demo fallback that creates a mock price snapshot for manually seeded markets. Done; parsing no longer creates price snapshots.
-- Continue expanding parsing coverage as unsupported real market questions are captured.
+- Continue expanding parsing coverage as unsupported real market questions are captured. Less-than thresholds and millimeter units are now covered; interval/range markets remain future work.
 - Continue refining parser failure reasons from observed failures.
 
 Done when:

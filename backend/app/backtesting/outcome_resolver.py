@@ -150,6 +150,10 @@ def build_resolved_outcome_from_observations(
         actual_outcome = "YES" if actual_value >= parsed_market.threshold_value else "NO"
     elif parsed_market.operator == ">":
         actual_outcome = "YES" if actual_value > parsed_market.threshold_value else "NO"
+    elif parsed_market.operator == "<=":
+        actual_outcome = "YES" if actual_value <= parsed_market.threshold_value else "NO"
+    elif parsed_market.operator == "<":
+        actual_outcome = "YES" if actual_value < parsed_market.threshold_value else "NO"
     else:
         raise ValueError(f"unsupported parsed market operator for observed weather resolution: {parsed_market.operator}")
 

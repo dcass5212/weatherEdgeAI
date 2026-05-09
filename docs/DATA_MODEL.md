@@ -61,9 +61,9 @@ Important fields:
 - `location_name`: parsed location.
 - `latitude` and `longitude`: coordinates used for forecast requests.
 - `metric`: currently precipitation.
-- `operator`: currently `>` or `>=`.
+- `operator`: one-sided precipitation threshold comparison, currently `>`, `>=`, `<`, or `<=`.
 - `threshold_value`: numeric threshold.
-- `threshold_unit`: currently inch-oriented for V1.
+- `threshold_unit`: currently inches or millimeters for V1 one-sided precipitation thresholds.
 - `target_start` and `target_end`: target weather window.
 - `parse_confidence`: parser confidence estimate.
 - `parser_version`: parser version string.

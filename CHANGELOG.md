@@ -6,6 +6,9 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Added
 
+- Added parser support for public one-sided precipitation wording with less-than thresholds and millimeter units, including compact `240mm` style thresholds.
+- Added baseline model and observed-outcome support for `<` and `<=` one-sided precipitation operators.
+- Added focused parser, baseline model, and outcome-resolution tests for less-than and millimeter threshold behavior.
 - Added public paper-runner fallback behavior that continues from the latest stored binary discovery-time price snapshot when read-only public price refresh fails, while preserving `source_refresh_failed` diagnostics, `stale_supported` price status, and the fallback snapshot ID.
 - Added regression coverage proving a public refresh 404 no longer discards an otherwise usable stored price snapshot during paper-runner processing.
 - Added persisted `paper_runner_runs` records with Alembic migration support for public-market paper runner status, config, summary counts, skip reasons, errors, and compact reports.
@@ -92,6 +95,9 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_baseline_model.py tests\test_backtesting.py`; all 31 focused parser/model/backtesting tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run`; public dry-run no longer reported `parse_failed` for the sampled one-sided precipitation market and now skips it at the expected fixture-geocoding boundary with `missing_coordinates=1`.
+- Ran `.\.venv\Scripts\pytest.exe`; all 126 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py`; all 6 focused paper-runner tests passed.
 - Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run`; public dry-run discovered 25 markets and recorded `price_refresh_failed_used_stored_snapshot=10` instead of hard-skipping those refresh failures.
 - Ran `.\.venv\Scripts\pytest.exe`; all 122 backend tests passed.

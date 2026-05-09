@@ -101,6 +101,31 @@ def test_build_resolved_outcome_from_noaa_daily_observations() -> None:
     assert outcome.raw_json["provider_payload"] == raw_observations
 
 
+def test_build_resolved_outcome_supports_less_than_operator() -> None:
+    parsed_market = ParsedMarket(
+        id=12,
+        market_id=34,
+        location_name="New York City",
+        latitude=40.7128,
+        longitude=-74.006,
+        metric="precipitation",
+        operator="<",
+        threshold_value=2.0,
+        threshold_unit="inch",
+        parser_version="regex_precip_v1",
+        parse_confidence=0.85,
+    )
+
+    outcome = build_resolved_outcome_from_observations(
+        parsed_market,
+        {"daily": {"precipitation_sum": [1.2]}, "daily_units": {"precipitation_sum": "inch"}},
+    )
+
+    assert outcome.actual_outcome == "YES"
+    assert outcome.actual_value == 1.2
+    assert outcome.actual_unit == "inch"
+
+
 def test_build_resolved_outcome_rejects_noaa_daily_prcp_without_units() -> None:
     parsed_market = ParsedMarket(
         id=12,
