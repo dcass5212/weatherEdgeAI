@@ -109,6 +109,31 @@ def _first_present(*values: float | None) -> float | None:
     return None
 
 
+def _dict_at(raw: dict[str, Any], *keys: str) -> dict[str, Any] | None:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _market_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return the market-like object from common public API wrappers."""
+    for key in ("market", "data"):
+        value = raw.get(key)
+        if isinstance(value, dict):
+            return {**raw, **value}
+    return raw
+
+
+def _first_float_from_dicts(dicts: tuple[dict[str, Any], ...], keys: tuple[str, ...]) -> float | None:
+    for source in dicts:
+        value = _first_float(source, keys)
+        if value is not None:
+            return value
+    return None
+
+
 def _json_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
@@ -135,6 +160,11 @@ def _token_id_map(raw: dict[str, Any]) -> dict[str, str]:
         if normalized_outcome in {"yes", "no"}:
             mapped[normalized_outcome] = str(token_id)
     return mapped
+
+
+def _has_token_price_map(raw: dict[str, Any]) -> bool:
+    prices = raw.get("prices") or raw.get("tokenPrices") or raw.get("token_prices")
+    return isinstance(prices, dict)
 
 
 def _side_price(side_map: Any, side: str) -> float | None:
@@ -191,7 +221,7 @@ def _outcome_prices(raw: dict[str, Any]) -> tuple[float | None, float | None]:
     token_yes, token_no = _named_probability_from_items(
         _json_list(raw.get("tokens")),
         name_keys=("outcome", "name", "side"),
-        price_keys=("price", "midpoint", "mid", "lastTradePrice", "last_trade_price"),
+        price_keys=("price", "midpoint", "mid", "lastTradePrice", "last_trade_price", "lastPrice", "last_price"),
     )
     if token_yes is not None or token_no is not None:
         return token_yes, token_no
@@ -199,7 +229,7 @@ def _outcome_prices(raw: dict[str, Any]) -> tuple[float | None, float | None]:
     market_outcome_yes, market_outcome_no = _named_probability_from_items(
         _json_list(raw.get("outcomes")),
         name_keys=("outcome", "name", "side"),
-        price_keys=("price", "midpoint", "mid", "lastTradePrice", "last_trade_price"),
+        price_keys=("price", "midpoint", "mid", "lastTradePrice", "last_trade_price", "lastPrice", "last_price"),
     )
     if market_outcome_yes is not None or market_outcome_no is not None:
         return market_outcome_yes, market_outcome_no
@@ -211,10 +241,67 @@ def _outcome_prices(raw: dict[str, Any]) -> tuple[float | None, float | None]:
     if outcomes and len(outcomes) == len(prices):
         mapped = {str(outcome).strip().lower(): _probability(price) for outcome, price in zip(outcomes, prices)}
         return mapped.get("yes"), mapped.get("no")
+    if outcomes and len(outcomes) != len(prices):
+        return None, None
 
     yes_price = _probability(prices[0]) if len(prices) >= 1 else None
     no_price = _probability(prices[1]) if len(prices) >= 2 else None
     return yes_price, no_price
+
+
+def _outcome_labels(raw: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for item in _json_list(raw.get("outcomes")):
+        if isinstance(item, str) and item.strip():
+            labels.append(item.strip().lower())
+        elif isinstance(item, dict):
+            for key in ("outcome", "name", "side"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    labels.append(value.strip().lower())
+                    break
+    for item in _json_list(raw.get("tokens")):
+        if not isinstance(item, dict):
+            continue
+        for key in ("outcome", "name", "side"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                labels.append(value.strip().lower())
+                break
+    return labels
+
+
+def _has_non_binary_outcomes(raw: dict[str, Any]) -> bool:
+    labels = _outcome_labels(raw)
+    return bool(labels) and not {"yes", "no"}.issubset(set(labels))
+
+
+def _has_outcome_price_length_mismatch(raw: dict[str, Any]) -> bool:
+    prices = _json_list(raw.get("outcomePrices") or raw.get("outcome_prices"))
+    outcomes = _json_list(raw.get("outcomes"))
+    return bool(prices and outcomes and len(prices) != len(outcomes))
+
+
+def _has_missing_token_context(raw: dict[str, Any]) -> bool:
+    if not _has_token_price_map(raw):
+        return False
+    return not {"yes", "no"}.issubset(set(_token_id_map(raw)))
+
+
+def _has_empty_orderbook(raw: dict[str, Any]) -> bool:
+    books = [raw]
+    nested_book = _dict_at(raw, "book", "orderbook", "order_book")
+    if nested_book is not None:
+        books.append(nested_book)
+    for book in books:
+        has_book_keys = "bids" in book or "asks" in book
+        if not has_book_keys:
+            continue
+        bids = book.get("bids")
+        asks = book.get("asks")
+        if (not isinstance(bids, list) or len(bids) == 0) and (not isinstance(asks, list) or len(asks) == 0):
+            return True
+    return False
 
 
 def _has_price_field(raw: dict[str, Any]) -> bool:
@@ -243,6 +330,9 @@ def _has_price_field(raw: dict[str, Any]) -> bool:
             "mid",
             "lastTradePrice",
             "last_trade_price",
+            "book",
+            "orderbook",
+            "order_book",
         )
     )
 
@@ -271,7 +361,20 @@ def _top_book_price(raw: dict[str, Any], side: str) -> float | None:
     return _probability(first_level)
 
 
+def _nested_top_book_price(raw: dict[str, Any], side: str) -> float | None:
+    direct_price = _top_book_price(raw, side)
+    if direct_price is not None:
+        return direct_price
+
+    nested_book = _dict_at(raw, "book", "orderbook", "order_book")
+    if nested_book is None:
+        return None
+    return _top_book_price(nested_book, side)
+
+
 def normalize_price_snapshot(raw: dict[str, Any]) -> DiscoveredPriceSnapshot | None:
+    source_raw = raw
+    raw = _market_payload(raw)
     outcome_yes, outcome_no = _outcome_prices(raw)
     best_bid_yes = _first_probability(raw, ("bestBidYes", "best_bid_yes", "bestBid", "best_bid", "bid"))
     best_ask_yes = _first_probability(raw, ("bestAskYes", "best_ask_yes", "bestAsk", "best_ask", "ask"))
@@ -279,9 +382,9 @@ def normalize_price_snapshot(raw: dict[str, Any]) -> DiscoveredPriceSnapshot | N
     best_bid_yes = best_bid_yes if best_bid_yes is not None else token_bid_yes
     best_ask_yes = best_ask_yes if best_ask_yes is not None else token_ask_yes
     if best_bid_yes is None:
-        best_bid_yes = _top_book_price(raw, "bids")
+        best_bid_yes = _nested_top_book_price(raw, "bids")
     if best_ask_yes is None:
-        best_ask_yes = _top_book_price(raw, "asks")
+        best_ask_yes = _nested_top_book_price(raw, "asks")
 
     explicit_yes_price = _first_probability(raw, ("yesPrice", "yes_price", "priceYes", "price_yes", "midpoint", "mid"))
     last_trade_price = _first_probability(raw, ("lastTradePrice", "last_trade_price"))
@@ -303,8 +406,10 @@ def normalize_price_snapshot(raw: dict[str, Any]) -> DiscoveredPriceSnapshot | N
     if spread is None and best_bid_yes is not None and best_ask_yes is not None:
         spread = round(best_ask_yes - best_bid_yes, 10)
 
-    liquidity = _first_float(raw, ("liquidity", "liquidityNum", "liquidity_num"))
-    volume = _first_float(raw, ("volume", "volumeNum", "volume_num"))
+    nested_stats = _dict_at(raw, "stats", "marketStats", "market_stats")
+    stat_sources = (raw,) if nested_stats is None else (raw, nested_stats)
+    liquidity = _first_float_from_dicts(stat_sources, ("liquidity", "liquidityNum", "liquidity_num"))
+    volume = _first_float_from_dicts(stat_sources, ("volume", "volumeNum", "volume_num"))
     timestamp = (
         _parse_datetime(raw.get("priceTimestamp") or raw.get("price_timestamp"))
         or _parse_datetime(raw.get("timestamp"))
@@ -327,7 +432,7 @@ def normalize_price_snapshot(raw: dict[str, Any]) -> DiscoveredPriceSnapshot | N
         liquidity=liquidity,
         volume=volume,
         timestamp=timestamp,
-        raw_json=raw,
+        raw_json=source_raw,
     )
 
 
@@ -337,6 +442,7 @@ def build_source_diagnostics(
     source: str = "polymarket",
 ) -> dict[str, Any]:
     """Summarize source coverage without hiding unsupported payload shapes."""
+    raw = _market_payload(raw)
     has_status = "active" in raw or "closed" in raw
     has_resolution = any(raw.get(key) for key in ("resolutionSource", "resolution_source", "rules", "description"))
     has_price_payload = _has_price_field(raw)
@@ -352,9 +458,21 @@ def build_source_diagnostics(
     )
     has_binary_prices = bool(price_snapshot and price_snapshot.yes_price is not None and price_snapshot.no_price is not None)
     unsupported_reasons: list[str] = []
+    specific_price_reasons: list[str] = []
+    if _has_non_binary_outcomes(raw):
+        specific_price_reasons.append("non_binary_outcomes")
+    if _has_outcome_price_length_mismatch(raw):
+        specific_price_reasons.append("outcome_price_length_mismatch")
+    if _has_missing_token_context(raw):
+        specific_price_reasons.append("missing_token_context")
+    if _has_empty_orderbook(raw):
+        specific_price_reasons.append("empty_orderbook")
+
     if not has_price_payload:
         unsupported_reasons.append("no_supported_price_fields")
-    if has_price_payload and not has_parsed_price_value:
+    if has_price_payload and specific_price_reasons:
+        unsupported_reasons.extend(specific_price_reasons)
+    if has_price_payload and not has_parsed_price_value and not specific_price_reasons:
         unsupported_reasons.append("price_fields_not_parseable")
     if price_snapshot is not None and not has_binary_prices:
         unsupported_reasons.append("missing_binary_yes_no_prices")
@@ -383,7 +501,8 @@ def _text_matches_weather(text: str, keywords: list[str]) -> bool:
 
 
 def _market_question(raw: dict[str, Any], parent_event: dict[str, Any] | None = None) -> str | None:
-    for key in ("question", "title", "name"):
+    raw = _market_payload(raw)
+    for key in ("question", "title", "name", "groupItemTitle", "group_item_title"):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -396,6 +515,7 @@ def _market_question(raw: dict[str, Any], parent_event: dict[str, Any] | None = 
 
 
 def _tag_text(raw: dict[str, Any]) -> list[str]:
+    raw = _market_payload(raw)
     tags = raw.get("tags")
     if not isinstance(tags, list):
         return []
@@ -414,15 +534,18 @@ def _tag_text(raw: dict[str, Any]) -> list[str]:
 def _search_context(raw: dict[str, Any], parent_event: dict[str, Any] | None = None) -> str:
     values: list[str] = []
     for source in (raw, parent_event or {}):
-        for key in ("question", "title", "name", "category", "description"):
-            value = source.get(key)
+        payload = _market_payload(source)
+        for key in ("question", "title", "name", "groupItemTitle", "group_item_title", "category", "description"):
+            value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 values.append(value.strip())
-        values.extend(_tag_text(source))
+        values.extend(_tag_text(payload))
     return " ".join(values)
 
 
 def normalize_polymarket_market(raw: dict[str, Any], parent_event: dict[str, Any] | None = None) -> DiscoveredMarket | None:
+    original_raw = raw
+    raw = _market_payload(raw)
     question = _market_question(raw, parent_event)
     source_market_id = raw.get("id") or raw.get("marketId") or raw.get("slug") or raw.get("conditionId")
     if question is None or source_market_id is None:
@@ -436,7 +559,7 @@ def normalize_polymarket_market(raw: dict[str, Any], parent_event: dict[str, Any
     if end_time is None and parent_event:
         end_time = parent_event.get("endDate") or parent_event.get("end_date") or parent_event.get("endTime")
 
-    price_snapshot = normalize_price_snapshot(raw)
+    price_snapshot = normalize_price_snapshot(original_raw)
     return DiscoveredMarket(
         source="polymarket",
         source_market_id=str(source_market_id),
@@ -448,8 +571,8 @@ def normalize_polymarket_market(raw: dict[str, Any], parent_event: dict[str, Any
         closed=_as_bool(raw.get("closed"), default=False),
         end_time=_parse_datetime(end_time),
         resolution_source=raw.get("resolutionSource") or raw.get("resolution_source"),
-        raw_json={"market": raw, "event": parent_event} if parent_event else raw,
-        source_diagnostics=build_source_diagnostics(raw, price_snapshot=price_snapshot, source="polymarket"),
+        raw_json={"market": original_raw, "event": parent_event} if parent_event else original_raw,
+        source_diagnostics=build_source_diagnostics(original_raw, price_snapshot=price_snapshot, source="polymarket"),
         price_snapshot=price_snapshot,
     )
 
@@ -469,10 +592,10 @@ def mock_weather_markets(limit: int, source: str = "mock") -> list[DiscoveredMar
     markets = [
         DiscoveredMarket(
             source=source,
-            source_market_id="mock-nyc-rain-may-5",
-            condition_id="mock-condition-nyc-rain-may-5",
-            question="Will New York City get more than 1 inch of rain on May 5?",
-            slug="nyc-rain-more-than-1-inch-may-5",
+            source_market_id="mock-nyc-rain-tomorrow",
+            condition_id="mock-condition-nyc-rain-tomorrow",
+            question="Will New York City get more than 1 inch of rain tomorrow?",
+            slug="nyc-rain-more-than-1-inch-tomorrow",
             category="weather",
             active=True,
             closed=False,
@@ -571,18 +694,36 @@ class MarketDiscoveryService:
             return mock_weather_markets(limit=limit, source=source)
 
         search_keywords = keywords or list(WEATHER_KEYWORDS)
-        events = await self.client.fetch_active_events()
+        events = await self._fetch_public_candidate_events(search_keywords, limit=limit)
         discovered: list[DiscoveredMarket] = []
         for raw_market, parent_event in _iter_candidate_markets(events):
             question = _market_question(raw_market, parent_event)
             if question is None or not _text_matches_weather(_search_context(raw_market, parent_event), search_keywords):
                 continue
             normalized = normalize_polymarket_market(raw_market, parent_event)
-            if normalized is not None:
+            if normalized is not None and normalized.active and not normalized.closed:
                 discovered.append(normalized)
             if len(discovered) >= limit:
                 break
         return discovered
+
+    async def _fetch_public_candidate_events(self, keywords: list[str], limit: int) -> list[dict[str, Any]]:
+        if not hasattr(self.client, "fetch_public_search_events"):
+            return await self.client.fetch_active_events()
+
+        events_by_id: dict[str, dict[str, Any]] = {}
+        for keyword in keywords:
+            search_events = await self.client.fetch_public_search_events(keyword, limit=limit)
+            for event in search_events:
+                event_id = event.get("id") or event.get("slug") or event.get("ticker")
+                key = str(event_id) if event_id is not None else str(len(events_by_id))
+                events_by_id.setdefault(key, event)
+            if len(events_by_id) >= limit:
+                break
+
+        if events_by_id:
+            return list(events_by_id.values())
+        return await self.client.fetch_active_events()
 
 
 class MarketSourceRefreshService:

@@ -15,7 +15,6 @@ class OpenMeteoClient:
         end_date: str,
     ) -> dict:
         async with httpx.AsyncClient(base_url=self.base_url) as client:
-            # TODO: Normalize forecast output into internal weather snapshot schemas.
             response = await client.get(
                 "/forecast",
                 params={

@@ -402,6 +402,48 @@ def test_refresh_market_price_snapshot_from_clob_token_price_map(client: TestCli
     assert snapshot["spread"] == 0.04
 
 
+def test_refresh_market_price_snapshot_from_wrapped_gamma_payload(client: TestClient, monkeypatch) -> None:
+    raw_market = _fixture("gamma_wrapped_market_payload.json")
+
+    class FakeRefreshService:
+        async def fetch_price_payload(self, source: str, source_market_id: str, condition_id: str | None = None) -> dict:
+            assert source == "polymarket"
+            assert source_market_id == "gamma-weather-wrapped"
+            assert condition_id == "0xwrappedweather"
+            return raw_market
+
+    monkeypatch.setattr(routes_markets, "MarketSourceRefreshService", FakeRefreshService)
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "polymarket",
+            "source_market_id": "gamma-weather-wrapped",
+            "condition_id": "0xwrappedweather",
+            "question": "Will New York City get more than 1 inch of rain tomorrow?",
+            "category": "weather",
+            "raw_json": {"market": raw_market["market"]},
+        },
+    )
+    assert create_response.status_code == 201
+    market_id = create_response.json()["id"]
+
+    response = client.post(f"/markets/{market_id}/price-snapshots/refresh")
+
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot["market_id"] == market_id
+    assert snapshot["yes_price"] == 0.46
+    assert snapshot["no_price"] == 0.54
+    assert snapshot["best_bid_yes"] == 0.45
+    assert snapshot["best_ask_yes"] == 0.47
+    assert snapshot["liquidity"] == 1234.5
+    assert snapshot["volume"] == 6789.01
+    diagnostics = client.get(f"/markets/{market_id}").json()["source_diagnostics"]
+    assert diagnostics["price_status"] == "supported"
+    assert diagnostics["capabilities"]["market_metadata"] is True
+    assert diagnostics["capabilities"]["prices"] is True
+
+
 def test_refresh_market_price_snapshot_combines_fresh_prices_with_stored_token_context(
     client: TestClient, monkeypatch
 ) -> None:
@@ -474,6 +516,47 @@ def test_refresh_market_price_snapshot_rejects_payload_without_prices(client: Te
     diagnostics = client.get(f"/markets/{market_id}").json()["source_diagnostics"]
     assert diagnostics["price_status"] == "unsupported"
     assert diagnostics["unsupported_reasons"] == ["no_supported_price_fields"]
+
+
+def test_refresh_market_price_snapshot_persists_specific_partial_diagnostics(
+    client: TestClient, monkeypatch
+) -> None:
+    raw_market = _fixture("gamma_non_binary_outcomes.json")
+
+    class FakeRefreshService:
+        async def fetch_price_payload(self, source: str, source_market_id: str, condition_id: str | None = None) -> dict:
+            assert source == "polymarket"
+            assert source_market_id == raw_market["id"]
+            assert condition_id == raw_market["conditionId"]
+            return raw_market
+
+    monkeypatch.setattr(routes_markets, "MarketSourceRefreshService", FakeRefreshService)
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "polymarket",
+            "source_market_id": raw_market["id"],
+            "condition_id": raw_market["conditionId"],
+            "question": raw_market["question"],
+            "category": "weather",
+            "raw_json": {"market": raw_market},
+        },
+    )
+    assert create_response.status_code == 201
+    market_id = create_response.json()["id"]
+
+    response = client.post(f"/markets/{market_id}/price-snapshots/refresh")
+
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot["yes_price"] is None
+    assert snapshot["no_price"] is None
+    assert snapshot["liquidity"] == 321.0
+    diagnostics = client.get(f"/markets/{market_id}").json()["source_diagnostics"]
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["capabilities"]["liquidity"] is True
+    assert diagnostics["unsupported_reasons"] == ["non_binary_outcomes", "missing_binary_yes_no_prices"]
 
 
 def test_refresh_polymarket_price_snapshot_persists_rate_limit_diagnostics(client: TestClient, monkeypatch) -> None:

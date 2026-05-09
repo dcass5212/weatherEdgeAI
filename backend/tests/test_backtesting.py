@@ -508,6 +508,84 @@ def test_backtest_runner_reports_coverage_diagnostics(db_session: Session) -> No
     assert result.coverage_diagnostics.excluded_prediction_model_version_count == 1
 
 
+def test_backtest_runner_uses_one_latest_outcome_per_market(db_session: Session) -> None:
+    market = Market(
+        source="test",
+        source_market_id="multiple-outcomes",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    db_session.add(market)
+    db_session.flush()
+    prediction = Prediction(
+        market_id=market.id,
+        model_version="baseline_precip_v1",
+        p_yes=0.8,
+        p_no=0.2,
+        confidence="medium",
+    )
+    db_session.add(prediction)
+    db_session.flush()
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.5,
+        market_price_no=0.5,
+        edge_yes=0.3,
+        edge_no=-0.3,
+        ev_yes=0.3,
+        ev_no=-0.3,
+        recommendation="PAPER_BUY_YES",
+        paper_position_size=10.0,
+    )
+    db_session.add(recommendation)
+    db_session.flush()
+    db_session.add_all(
+        [
+            PaperTrade(
+                market_id=market.id,
+                recommendation_id=recommendation.id,
+                side="YES",
+                entry_price=0.5,
+                quantity=10.0,
+                entry_time=datetime(2026, 5, 5, 12, tzinfo=timezone.utc),
+                status="OPEN",
+            ),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="NO",
+                actual_value=0.3,
+                actual_unit="inch",
+                resolution_source="initial_review",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            ),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.2,
+                actual_unit="inch",
+                resolution_source="corrected_review",
+                resolved_at=datetime(2026, 5, 6, 3, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = BacktestRunner(db_session).run(
+        BacktestRunRequest(start_date="2026-05-01", end_date="2026-05-10", model_version="baseline_precip_v1")
+    )
+
+    assert result.num_predictions == 1
+    assert result.num_resolved_outcomes == 1
+    assert result.ev_recommendation_count == 1
+    assert result.paper_trade_count == 1
+    assert result.win_rate == 1.0
+    assert result.paper_total_pnl == 5.0
+    assert result.coverage_diagnostics.evaluated_prediction_count == 1
+    assert result.coverage_diagnostics.resolved_outcome_count_in_window == 2
+
+
 def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     response = client.post(
         "/backtests/run",

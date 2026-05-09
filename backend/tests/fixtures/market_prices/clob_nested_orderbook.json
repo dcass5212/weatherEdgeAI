@@ -1,0 +1,19 @@
+{
+  "market": "0xgammaweather4",
+  "asset_id": "yes-token-4",
+  "timestamp": "2026-05-09T12:00:00Z",
+  "book": {
+    "bids": [
+      {
+        "price": "0.41",
+        "size": "1200"
+      }
+    ],
+    "asks": [
+      {
+        "price": "0.47",
+        "size": "900"
+      }
+    ]
+  }
+}

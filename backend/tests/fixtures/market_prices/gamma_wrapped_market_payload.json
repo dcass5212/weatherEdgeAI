@@ -1,0 +1,20 @@
+{
+  "request_id": "captured-wrapper-1",
+  "market": {
+    "id": "gamma-weather-wrapped",
+    "conditionId": "0xwrappedweather",
+    "groupItemTitle": "Will New York City get more than 1 inch of rain tomorrow?",
+    "slug": "nyc-rain-wrapped",
+    "active": true,
+    "closed": false,
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.46\", \"0.54\"]",
+    "bestBid": "0.45",
+    "bestAsk": "0.47",
+    "stats": {
+      "liquidity": "1234.5",
+      "volume": "6789.01"
+    },
+    "updatedAt": "2026-05-09T12:00:00Z"
+  }
+}

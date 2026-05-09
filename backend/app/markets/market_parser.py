@@ -57,24 +57,30 @@ PRECIPITATION_PATTERNS: list[tuple[re.Pattern[str], str | None]] = [
 ]
 
 
-def _parse_target_window(date_text: str | None) -> tuple[datetime | None, datetime | None]:
+def _parse_target_window(
+    date_text: str | None,
+    reference_datetime: datetime | None = None,
+) -> tuple[datetime | None, datetime | None]:
     if not date_text:
         return None, None
 
     normalized = date_text.strip().rstrip("?").lower()
-    now = datetime.now(timezone.utc)
+    now = reference_datetime or datetime.now(timezone.utc)
     if normalized == "tomorrow":
         target_date = (now + timedelta(days=1)).date()
     else:
-        try:
-            parsed = datetime.strptime(normalized.title(), "%B %d")
-        except ValueError:
+        parsed = None
+        for date_format in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y", "%B %d", "%b %d"):
             try:
-                parsed = datetime.strptime(normalized.title(), "%b %d")
+                parsed = datetime.strptime(normalized.title(), date_format)
+                break
             except ValueError:
-                return None, None
-        target_date = parsed.replace(year=now.year).date()
-        if target_date < now.date():
+                continue
+        if parsed is None:
+            return None, None
+        has_explicit_year = parsed.year != 1900
+        target_date = parsed.date() if has_explicit_year else parsed.replace(year=now.year).date()
+        if not has_explicit_year and target_date < now.date():
             target_date = target_date.replace(year=now.year + 1)
 
     start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
@@ -104,7 +110,10 @@ def _unsupported_reason(question: str) -> str:
     )
 
 
-def parse_precipitation_market(question: str) -> ParsedMarketResult:
+def parse_precipitation_market(
+    question: str,
+    reference_datetime: datetime | None = None,
+) -> ParsedMarketResult:
     """Parse simple precipitation threshold market questions using regex."""
     normalized_question = question.strip()
 
@@ -115,7 +124,7 @@ def parse_precipitation_market(question: str) -> ParsedMarketResult:
 
         operator = _operator(match, fallback_operator)
         location_name = match.group("location").strip()
-        target_start, target_end = _parse_target_window(match.groupdict().get("date"))
+        target_start, target_end = _parse_target_window(match.groupdict().get("date"), reference_datetime)
         return ParsedMarketResult(
             success=True,
             location_name=location_name,

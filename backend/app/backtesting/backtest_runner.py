@@ -126,6 +126,83 @@ def _paper_trade_summary(rows: list[PaperTradeReplayRow]) -> PaperTradeSummary:
     )
 
 
+def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v1") -> BacktestRunResponse:
+    data = json.loads(SEED_FIXTURE_PATH.read_text())
+    rows: list[ReplayRow] = []
+    trade_rows: list[PaperTradeReplayRow] = []
+    ev_recommendation_count = 0
+    for item in data["resolved_predictions"]:
+        if item["model_version"] != model_version:
+            continue
+        resolved_at = _parse_datetime(item.get("resolved_at"))
+        rows.append(
+            ReplayRow(
+                probability_yes=item["p_yes"],
+                outcome_yes=_outcome_to_int(item["actual_outcome"]),
+                resolved_at=resolved_at,
+            )
+        )
+        if item.get("ev_recommendation") is not None:
+            ev_recommendation_count += 1
+        paper_trade = item.get("paper_trade")
+        if paper_trade is not None and resolved_at is not None:
+            trade_rows.append(
+                PaperTradeReplayRow(
+                    side=paper_trade["side"],
+                    entry_price=paper_trade["entry_price"],
+                    quantity=paper_trade["quantity"],
+                    outcome_yes=_outcome_to_int(item["actual_outcome"]),
+                    resolved_at=resolved_at,
+                )
+            )
+
+    paper_summary = _paper_trade_summary(trade_rows)
+    coverage_diagnostics = BacktestCoverageDiagnostics(
+        candidate_prediction_count=len(rows),
+        evaluated_prediction_count=len(rows),
+        missing_outcome_count=0,
+        resolved_outcome_count_in_window=len(rows),
+        unmatched_resolved_outcome_count=0,
+        excluded_prediction_model_version_count=0,
+    )
+    if not rows:
+        return BacktestRunResponse(
+            model_version=model_version,
+            num_predictions=0,
+            num_resolved_outcomes=0,
+            coverage_diagnostics=coverage_diagnostics,
+            ev_recommendation_count=ev_recommendation_count,
+            paper_trade_count=paper_summary.paper_trade_count,
+            paper_total_pnl=paper_summary.paper_total_pnl,
+            paper_roi=paper_summary.paper_roi,
+            max_drawdown=paper_summary.max_drawdown,
+            status="no_resolved_predictions",
+            source="seed_fixture",
+        )
+
+    brier_values = [brier_score(row.probability_yes, row.outcome_yes) for row in rows]
+    log_loss_values = [_log_loss(row.probability_yes, row.outcome_yes) for row in rows]
+    buckets = calibration_summary([(row.probability_yes, row.outcome_yes) for row in rows])
+    return BacktestRunResponse(
+        model_version=model_version,
+        num_predictions=len(rows),
+        num_resolved_outcomes=len(rows),
+        coverage_diagnostics=coverage_diagnostics,
+        ev_recommendation_count=ev_recommendation_count,
+        paper_trade_count=paper_summary.paper_trade_count,
+        win_rate=_win_rate(rows),
+        brier_score=round(sum(brier_values) / len(brier_values), 6),
+        log_loss=round(sum(log_loss_values) / len(log_loss_values), 6),
+        calibration_buckets=[CalibrationBucket.model_validate(bucket.__dict__) for bucket in buckets],
+        sample_size_note=_sample_size_note(len(rows)),
+        paper_total_pnl=paper_summary.paper_total_pnl,
+        paper_roi=paper_summary.paper_roi,
+        max_drawdown=paper_summary.max_drawdown,
+        status="completed",
+        source="seed_fixture",
+    )
+
+
 class BacktestRunner:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -179,24 +256,46 @@ class BacktestRunner:
         )
 
     def _load_replay_rows(self, payload: BacktestRunRequest) -> list[ReplayRow]:
-        start, end = _date_window(payload.start_date, payload.end_date)
-        statement: Select[tuple[Prediction, ResolvedOutcome]] = (
-            select(Prediction, ResolvedOutcome)
-            .join(ResolvedOutcome, ResolvedOutcome.market_id == Prediction.market_id)
+        outcomes_by_market = self._selected_outcomes_by_market(payload)
+        if not outcomes_by_market:
+            return []
+
+        statement: Select[tuple[Prediction]] = (
+            select(Prediction)
             .where(Prediction.model_version == payload.model_version)
-            .where(ResolvedOutcome.resolved_at.is_not(None))
-            .where(ResolvedOutcome.resolved_at >= start)
-            .where(ResolvedOutcome.resolved_at <= end)
-            .order_by(ResolvedOutcome.resolved_at.asc(), Prediction.created_at.asc())
+            .where(Prediction.market_id.in_(outcomes_by_market.keys()))
+            .order_by(Prediction.created_at.asc())
         )
         return [
             ReplayRow(
                 probability_yes=prediction.p_yes,
-                outcome_yes=_outcome_to_int(outcome.actual_outcome),
+                outcome_yes=_outcome_to_int(outcomes_by_market[prediction.market_id].actual_outcome),
                 resolved_at=outcome.resolved_at,
             )
-            for prediction, outcome in self.db.execute(statement).all()
+            for prediction in self.db.scalars(statement)
+            if (outcome := outcomes_by_market.get(prediction.market_id)) is not None
         ]
+
+    def _selected_outcomes_by_market(self, payload: BacktestRunRequest) -> dict[int, ResolvedOutcome]:
+        """Pick one deterministic resolved outcome per market for replay.
+
+        A market can accumulate multiple outcome records through manual review
+        or provider retries. Replays should not multiply predictions by every
+        outcome row, so the latest resolved record in the requested window is
+        treated as the market's evaluation outcome.
+        """
+        start, end = _date_window(payload.start_date, payload.end_date)
+        statement = (
+            select(ResolvedOutcome)
+            .where(ResolvedOutcome.resolved_at.is_not(None))
+            .where(ResolvedOutcome.resolved_at >= start)
+            .where(ResolvedOutcome.resolved_at <= end)
+            .order_by(ResolvedOutcome.resolved_at.desc(), ResolvedOutcome.id.desc())
+        )
+        outcomes_by_market: dict[int, ResolvedOutcome] = {}
+        for outcome in self.db.scalars(statement):
+            outcomes_by_market.setdefault(outcome.market_id, outcome)
+        return outcomes_by_market
 
     def _coverage_diagnostics(
         self,
@@ -228,14 +327,12 @@ class BacktestRunner:
                 .where(ResolvedOutcome.resolved_at <= end)
             ).all()
         )
+        selected_outcome_market_ids = set(self._selected_outcomes_by_market(payload).keys())
         prediction_ids_with_window_outcomes = set(
             self.db.scalars(
                 select(Prediction.id)
-                .join(ResolvedOutcome, ResolvedOutcome.market_id == Prediction.market_id)
                 .where(Prediction.model_version == payload.model_version)
-                .where(ResolvedOutcome.resolved_at.is_not(None))
-                .where(ResolvedOutcome.resolved_at >= start)
-                .where(ResolvedOutcome.resolved_at <= end)
+                .where(Prediction.market_id.in_(selected_outcome_market_ids))
             ).all()
         )
         excluded_prediction_ids = set(
@@ -259,30 +356,30 @@ class BacktestRunner:
         )
 
     def _count_ev_recommendations(self, payload: BacktestRunRequest) -> int:
-        start, end = _date_window(payload.start_date, payload.end_date)
+        selected_outcome_market_ids = set(self._selected_outcomes_by_market(payload).keys())
+        if not selected_outcome_market_ids:
+            return 0
+
         statement = (
             select(EVRecommendation.id)
             .join(Prediction, EVRecommendation.prediction_id == Prediction.id)
-            .join(ResolvedOutcome, ResolvedOutcome.market_id == Prediction.market_id)
             .where(Prediction.model_version == payload.model_version)
-            .where(ResolvedOutcome.resolved_at.is_not(None))
-            .where(ResolvedOutcome.resolved_at >= start)
-            .where(ResolvedOutcome.resolved_at <= end)
+            .where(Prediction.market_id.in_(selected_outcome_market_ids))
         )
         return len(self.db.execute(statement).all())
 
     def _load_paper_trade_rows(self, payload: BacktestRunRequest) -> list[PaperTradeReplayRow]:
-        start, end = _date_window(payload.start_date, payload.end_date)
-        statement: Select[tuple[PaperTrade, ResolvedOutcome]] = (
-            select(PaperTrade, ResolvedOutcome)
+        outcomes_by_market = self._selected_outcomes_by_market(payload)
+        if not outcomes_by_market:
+            return []
+
+        statement: Select[tuple[PaperTrade]] = (
+            select(PaperTrade)
             .join(EVRecommendation, PaperTrade.recommendation_id == EVRecommendation.id)
             .join(Prediction, EVRecommendation.prediction_id == Prediction.id)
-            .join(ResolvedOutcome, ResolvedOutcome.market_id == PaperTrade.market_id)
             .where(Prediction.model_version == payload.model_version)
-            .where(ResolvedOutcome.resolved_at.is_not(None))
-            .where(ResolvedOutcome.resolved_at >= start)
-            .where(ResolvedOutcome.resolved_at <= end)
-            .order_by(ResolvedOutcome.resolved_at.asc(), PaperTrade.entry_time.asc())
+            .where(PaperTrade.market_id.in_(outcomes_by_market.keys()))
+            .order_by(PaperTrade.entry_time.asc())
         )
         return [
             PaperTradeReplayRow(
@@ -292,8 +389,8 @@ class BacktestRunner:
                 outcome_yes=_outcome_to_int(outcome.actual_outcome),
                 resolved_at=outcome.resolved_at,
             )
-            for trade, outcome in self.db.execute(statement).all()
-            if outcome.resolved_at is not None
+            for trade in self.db.scalars(statement)
+            if (outcome := outcomes_by_market.get(trade.market_id)) is not None and outcome.resolved_at is not None
         ]
 
     def _seed_fixture_records(self) -> None:

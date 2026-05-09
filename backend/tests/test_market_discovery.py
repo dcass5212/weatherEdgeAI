@@ -102,6 +102,47 @@ def test_normalize_price_snapshot_from_token_items() -> None:
     assert snapshot.spread == 0.02
 
 
+def test_normalize_price_snapshot_from_token_last_price_items() -> None:
+    raw_market = _fixture("gamma_token_last_price_items.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price == 0.63
+    assert snapshot.no_price == 0.37
+    assert snapshot.liquidity == 456.7
+    assert snapshot.volume == 890.12
+    assert diagnostics["price_status"] == "supported"
+    assert diagnostics["capabilities"]["prices"] is True
+    assert diagnostics["unsupported_reasons"] == []
+
+
+def test_normalize_wrapped_gamma_market_payload() -> None:
+    raw_market = _fixture("gamma_wrapped_market_payload.json")
+
+    market = normalize_polymarket_market(raw_market)
+
+    assert market is not None
+    assert market.source_market_id == "gamma-weather-wrapped"
+    assert market.condition_id == "0xwrappedweather"
+    assert market.question == "Will New York City get more than 1 inch of rain tomorrow?"
+    assert market.raw_json == raw_market
+    assert market.price_snapshot is not None
+    assert market.price_snapshot.yes_price == 0.46
+    assert market.price_snapshot.no_price == 0.54
+    assert market.price_snapshot.best_bid_yes == 0.45
+    assert market.price_snapshot.best_ask_yes == 0.47
+    assert market.price_snapshot.liquidity == 1234.5
+    assert market.price_snapshot.volume == 6789.01
+    assert market.price_snapshot.raw_json == raw_market
+    assert market.source_diagnostics is not None
+    assert market.source_diagnostics["price_status"] == "supported"
+    assert market.source_diagnostics["capabilities"]["market_metadata"] is True
+    assert market.source_diagnostics["capabilities"]["condition_id"] is True
+    assert market.source_diagnostics["capabilities"]["prices"] is True
+
+
 def test_normalize_price_snapshot_from_orderbook_midpoint() -> None:
     raw_book = _fixture("clob_orderbook_yes_token.json")
 
@@ -113,6 +154,23 @@ def test_normalize_price_snapshot_from_orderbook_midpoint() -> None:
     assert snapshot.best_bid_yes == 0.48
     assert snapshot.best_ask_yes == 0.52
     assert snapshot.spread == 0.04
+
+
+def test_normalize_price_snapshot_from_nested_orderbook_midpoint() -> None:
+    raw_book = _fixture("clob_nested_orderbook.json")
+
+    snapshot = normalize_price_snapshot(raw_book)
+    diagnostics = build_source_diagnostics(raw_book, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price == 0.44
+    assert snapshot.no_price == 0.56
+    assert snapshot.best_bid_yes == 0.41
+    assert snapshot.best_ask_yes == 0.47
+    assert snapshot.spread == 0.06
+    assert diagnostics["price_status"] == "supported"
+    assert diagnostics["capabilities"]["prices"] is True
+    assert diagnostics["capabilities"]["top_of_book"] is True
 
 
 def test_normalize_price_snapshot_from_clob_token_price_map() -> None:
@@ -147,6 +205,200 @@ def test_source_diagnostics_report_unparseable_price_fields_with_liquidity() -> 
     assert diagnostics["capabilities"]["prices"] is False
     assert diagnostics["capabilities"]["liquidity"] is True
     assert diagnostics["unsupported_reasons"] == ["price_fields_not_parseable", "missing_binary_yes_no_prices"]
+
+
+def test_source_diagnostics_report_nested_stats_without_price_fields() -> None:
+    raw_market = _fixture("gamma_nested_stats_only.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price is None
+    assert snapshot.no_price is None
+    assert snapshot.liquidity == 432.1
+    assert snapshot.volume == 987.65
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["capabilities"]["liquidity"] is True
+    assert diagnostics["capabilities"]["volume"] is True
+    assert diagnostics["unsupported_reasons"] == ["no_supported_price_fields", "missing_binary_yes_no_prices"]
+
+
+def test_source_diagnostics_report_non_binary_outcomes() -> None:
+    raw_market = _fixture("gamma_non_binary_outcomes.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price is None
+    assert snapshot.no_price is None
+    assert snapshot.liquidity == 321.0
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["unsupported_reasons"] == ["non_binary_outcomes", "missing_binary_yes_no_prices"]
+
+
+def test_source_diagnostics_report_outcome_price_length_mismatch() -> None:
+    raw_market = _fixture("gamma_outcome_price_length_mismatch.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price is None
+    assert snapshot.no_price is None
+    assert snapshot.liquidity == 222.0
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["unsupported_reasons"] == ["outcome_price_length_mismatch", "missing_binary_yes_no_prices"]
+
+
+def test_source_diagnostics_report_missing_token_context() -> None:
+    raw_market = _fixture("clob_missing_token_context.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price is None
+    assert snapshot.no_price is None
+    assert snapshot.liquidity == 111.0
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["unsupported_reasons"] == ["missing_token_context", "missing_binary_yes_no_prices"]
+
+
+def test_source_diagnostics_report_empty_orderbook() -> None:
+    raw_market = _fixture("clob_empty_orderbook.json")
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price is None
+    assert snapshot.no_price is None
+    assert snapshot.liquidity == 10.5
+    assert snapshot.volume == 20.5
+    assert diagnostics["price_status"] == "partial"
+    assert diagnostics["capabilities"]["prices"] is False
+    assert diagnostics["capabilities"]["top_of_book"] is False
+    assert diagnostics["unsupported_reasons"] == ["empty_orderbook", "missing_binary_yes_no_prices"]
+
+
+@pytest.mark.anyio
+async def test_polymarket_client_fetches_public_search_events() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/public-search"
+        assert request.url.params["q"] == "weather"
+        assert request.url.params["limit"] == "3"
+        return httpx.Response(
+            200,
+            json={
+                "events": [
+                    {
+                        "id": "event-1",
+                        "title": "Weather markets",
+                        "markets": [{"id": "market-1", "question": "Will it rain?"}],
+                    }
+                ]
+            },
+        )
+
+    client = PolymarketClient(
+        gamma_base_url="https://gamma.test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    events = await client.fetch_public_search_events("weather", limit=3)
+
+    assert events == [
+        {
+            "id": "event-1",
+            "title": "Weather markets",
+            "markets": [{"id": "market-1", "question": "Will it rain?"}],
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_discovery_uses_public_search_and_skips_closed_child_markets() -> None:
+    class FakeClient:
+        async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
+            assert query == "rain"
+            assert limit == 10
+            return [
+                {
+                    "id": "rain-event",
+                    "title": "Rain markets",
+                    "category": "Weather",
+                    "markets": [
+                        {
+                            "id": "open-rain-market",
+                            "conditionId": "condition-open-rain",
+                            "question": "Will New York City get more than 1 inch of rain tomorrow?",
+                            "outcomes": '["Yes", "No"]',
+                            "outcomePrices": '["0.41", "0.59"]',
+                            "active": True,
+                            "closed": False,
+                        },
+                        {
+                            "id": "closed-rain-market",
+                            "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+                            "outcomes": '["Yes", "No"]',
+                            "outcomePrices": '["0.90", "0.10"]',
+                            "active": True,
+                            "closed": True,
+                        },
+                    ],
+                }
+            ]
+
+        async def fetch_active_events(self) -> list[dict]:
+            raise AssertionError("public search should be used before active event fallback")
+
+    markets = await MarketDiscoveryService(client=FakeClient()).discover_weather_markets(
+        source="polymarket",
+        keywords=["rain"],
+        limit=10,
+    )
+
+    assert len(markets) == 1
+    assert markets[0].source_market_id == "open-rain-market"
+    assert markets[0].category == "Weather"
+    assert markets[0].price_snapshot is not None
+    assert markets[0].price_snapshot.yes_price == 0.41
+
+
+@pytest.mark.anyio
+async def test_discovery_falls_back_to_active_events_when_public_search_is_empty() -> None:
+    class FakeClient:
+        async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
+            return []
+
+        async def fetch_active_events(self) -> list[dict]:
+            return [
+                {
+                    "id": "fallback-rain",
+                    "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+                    "outcomes": '["Yes", "No"]',
+                    "outcomePrices": '["0.52", "0.48"]',
+                    "active": True,
+                    "closed": False,
+                }
+            ]
+
+    markets = await MarketDiscoveryService(client=FakeClient()).discover_weather_markets(
+        source="polymarket",
+        keywords=["rain"],
+        limit=10,
+    )
+
+    assert len(markets) == 1
+    assert markets[0].source_market_id == "fallback-rain"
+    assert markets[0].price_snapshot is not None
+    assert markets[0].price_snapshot.yes_price == 0.52
 
 
 @pytest.mark.anyio

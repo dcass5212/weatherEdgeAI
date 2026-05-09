@@ -1,0 +1,11 @@
+{
+  "id": "gamma-weather-empty-orderbook",
+  "conditionId": "0xemptybookweather",
+  "question": "Will New York City get more than 1 inch of rain tomorrow?",
+  "book": {
+    "bids": [],
+    "asks": []
+  },
+  "liquidityNum": "10.5",
+  "volumeNum": "20.5"
+}

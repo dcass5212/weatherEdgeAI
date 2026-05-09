@@ -1,0 +1,11 @@
+{
+  "id": "gamma-weather-stats-only",
+  "conditionId": "0xgammaweatherstats",
+  "question": "Will New York City get more than 1 inch of rain on May 5?",
+  "active": true,
+  "closed": false,
+  "stats": {
+    "liquidity": "432.10",
+    "volume": "987.65"
+  }
+}

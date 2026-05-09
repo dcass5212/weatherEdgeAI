@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.markets.market_parser import parse_precipitation_market
 
 
@@ -56,6 +58,28 @@ def test_parse_there_be_rain_in_location_wording() -> None:
     assert result.operator == ">"
     assert result.threshold_value == 1
     assert result.target_start is not None
+
+
+def test_parse_tomorrow_uses_reference_datetime() -> None:
+    result = parse_precipitation_market(
+        "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+        reference_datetime=datetime(2026, 5, 9, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.success is True
+    assert result.target_start is not None
+    assert result.target_start.date().isoformat() == "2026-05-10"
+
+
+def test_parse_explicit_year_is_not_rolled_forward() -> None:
+    result = parse_precipitation_market(
+        "Will New York City get more than 1 inch of rain on May 5, 2026?",
+        reference_datetime=datetime(2026, 5, 9, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.success is True
+    assert result.target_start is not None
+    assert result.target_start.date().isoformat() == "2026-05-05"
 
 
 def test_unsupported_question_returns_safe_failure() -> None:

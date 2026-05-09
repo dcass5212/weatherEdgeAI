@@ -1,0 +1,17 @@
+{
+  "id": "gamma-weather-token-last-price",
+  "conditionId": "0xtokenlastprice",
+  "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+  "tokens": [
+    {
+      "outcome": "Yes",
+      "lastPrice": "0.63"
+    },
+    {
+      "outcome": "No",
+      "last_price": "0.37"
+    }
+  ],
+  "liquidityNum": "456.7",
+  "volumeNum": "890.12"
+}

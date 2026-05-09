@@ -119,6 +119,18 @@ class PolymarketClient:
             return [item for item in events if isinstance(item, dict)] if isinstance(events, list) else []
         raise PublicMarketDataError(endpoint="/events", reason="malformed_payload", attempts=1, retryable=False)
 
+    async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
+        endpoint = "/public-search"
+        data = await self._get_json(
+            self.gamma_base_url,
+            endpoint,
+            params={"q": query, "limit": str(limit)},
+        )
+        if isinstance(data, dict):
+            events = data.get("events", [])
+            return [item for item in events if isinstance(item, dict)] if isinstance(events, list) else []
+        raise PublicMarketDataError(endpoint=endpoint, reason="malformed_payload", attempts=1, retryable=False)
+
     async def fetch_market(self, market_id: str) -> dict:
         endpoint = f"/markets/{market_id}"
         data = await self._get_json(self.gamma_base_url, endpoint)

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,8 +16,14 @@ class Settings(BaseSettings):
     NOAA_CDO_BASE_URL: str = "https://www.ncei.noaa.gov/cdo-web/api/v2"
     NOAA_CDO_TOKEN: str | None = None
     GEOCODING_PROVIDER: str = "fixture"
+    TRADING_MODE: Literal["paper", "read_only", "live"] = "paper"
+    LIVE_TRADING_ENABLED: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @property
+    def live_execution_allowed(self) -> bool:
+        return self.TRADING_MODE == "live" and self.LIVE_TRADING_ENABLED
 
 
 @lru_cache

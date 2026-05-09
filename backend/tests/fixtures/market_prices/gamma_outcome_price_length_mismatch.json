@@ -1,0 +1,9 @@
+{
+  "id": "gamma-weather-price-mismatch",
+  "conditionId": "0xmismatchweather",
+  "question": "Will New York City get more than 1 inch of rain tomorrow?",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "outcomePrices": "[\"0.52\"]",
+  "liquidityNum": "222.0",
+  "volumeNum": "333.0"
+}

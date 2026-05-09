@@ -1,0 +1,12 @@
+{
+  "id": "gamma-weather-missing-token-context",
+  "conditionId": "0xmissingtokencontext",
+  "question": "Will Chicago receive at least 0.5 inches of rain tomorrow?",
+  "prices": {
+    "yes-token-missing-context": {
+      "BUY": "0.58",
+      "SELL": "0.56"
+    }
+  },
+  "liquidityNum": "111.0"
+}

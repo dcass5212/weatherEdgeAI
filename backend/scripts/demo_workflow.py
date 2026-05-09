@@ -74,7 +74,7 @@ def _one_line(label: str, data: dict[str, Any], keys: tuple[str, ...]) -> None:
 
 def _select_demo_market(markets: list[dict[str, Any]]) -> dict[str, Any]:
     for market in markets:
-        if market.get("source_market_id") == "mock-nyc-rain-may-5":
+        if market.get("source_market_id") == "mock-nyc-rain-tomorrow":
             return market
     if not markets:
         raise RuntimeError("No markets returned after discovery")

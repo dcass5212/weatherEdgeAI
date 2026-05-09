@@ -1,0 +1,9 @@
+{
+  "id": "gamma-weather-non-binary",
+  "conditionId": "0xnonbinaryweather",
+  "question": "How much rain will New York City get tomorrow?",
+  "outcomes": "[\"Under 1 inch\", \"1 inch or more\"]",
+  "outcomePrices": "[\"0.61\", \"0.39\"]",
+  "liquidityNum": "321.0",
+  "volumeNum": "654.0"
+}
