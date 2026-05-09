@@ -5,6 +5,7 @@ from app.api.routes_demo import router as demo_router
 from app.api.routes_health import router as health_router
 from app.api.routes_backtests import router as backtests_router
 from app.api.routes_markets import router as markets_router
+from app.api.routes_paper_runner import router as paper_runner_router
 from app.api.routes_paper_trades import router as paper_trades_router
 from app.api.routes_predictions import router as predictions_router
 from app.api.routes_strategy import router as strategy_router
@@ -19,6 +20,7 @@ app.include_router(markets_router)
 app.include_router(weather_router)
 app.include_router(predictions_router)
 app.include_router(strategy_router)
+app.include_router(paper_runner_router)
 app.include_router(paper_trades_router)
 app.include_router(backtests_router)
 app.include_router(dashboard_router)

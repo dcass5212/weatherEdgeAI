@@ -6,6 +6,43 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Added
 
+- Added public paper-runner fallback behavior that continues from the latest stored binary discovery-time price snapshot when read-only public price refresh fails, while preserving `source_refresh_failed` diagnostics, `stale_supported` price status, and the fallback snapshot ID.
+- Added regression coverage proving a public refresh 404 no longer discards an otherwise usable stored price snapshot during paper-runner processing.
+- Added persisted `paper_runner_runs` records with Alembic migration support for public-market paper runner status, config, summary counts, skip reasons, errors, and compact reports.
+- Added `POST /paper-runner/run-once`, `GET /paper-runner/runs`, and `GET /paper-runner/runs/{run_id}` for one-shot public paper-run execution and run-history inspection.
+- Added focused tests for completed and failed recorded runner persistence and the paper-runner API contract.
+- Added Gamma `public-search` as the primary keyword-based public market discovery path, with event deduplication, child-market expansion, inactive/closed child filtering, and active-event fallback when search returns no candidates.
+- Added focused public discovery tests for the `public-search` client path, closed child-market filtering, and active-event fallback.
+- Added bounded loop mode to `scripts/paper_market_runner.py` with `--interval-minutes`, `--max-hours`, and `--max-runs`, while keeping one-shot mode as the default.
+- Added CLI validation tests proving loop mode requires a stopping bound and preserves one-shot defaults.
+- Added `scripts/paper_market_runner.py`, a guarded one-shot public-market paper runner with discovery, optional price refresh, eligibility checks, forecast/model/EV workflow execution, max-trade caps, duplicate open-side checks, and simulated paper-trade creation only.
+- Added `app.strategy.paper_market_runner` as an importable orchestration service so the public paper runner can be tested without live network calls.
+- Added focused runner tests for creating a capped paper trade, avoiding duplicate open side trades, and skipping markets with missing binary prices, low liquidity, or wide spreads.
+- Added compact source diagnostics fields to `GET /dashboard/summary` market rows: `price_status`, `unsupported_reasons`, and `has_public_source_error`.
+- Added dashboard API coverage proving supported and partial public source diagnostics are exposed through the summary contract.
+- Added frontend market workflow display for supported/partial/unsupported price status, source errors, and compact unsupported reasons.
+- Added captured-style partial public price fixtures for non-binary outcomes, outcome/price length mismatches, missing CLOB token context, and empty orderbooks.
+- Added focused diagnostics tests proving those partial public payloads preserve liquidity/volume when available while reporting specific unsupported reasons.
+- Added captured-style public market-data fixtures for wrapped Gamma-style market payloads and token rows that expose `lastPrice`/`last_price`.
+- Added focused discovery and refresh tests proving wrapped public payloads and token last-price rows normalize into source-attributed price snapshots with supported diagnostics.
+- Added `POST /demo/paper-workflow`, a paper-only deterministic workflow endpoint for mock discovery, parsing, fixture forecast creation, baseline prediction, EV evaluation, and simulated paper-trade creation.
+- Added dashboard `Run Paper Demo` action wired to the paper-only demo endpoint, followed by dashboard refresh.
+- Added focused API tests proving the demo workflow creates the full paper chain and reuses existing downstream records on repeated calls.
+- Added read-only dashboard evaluation summary support that returns compact backtest metrics, paper replay metrics, calibration buckets, and sample-size context from persisted outcomes when available, with deterministic seed-fixture metrics as a non-mutating fallback.
+- Added frontend backtest and calibration panel to the read-only dashboard.
+- Added dashboard API tests for the evaluation summary fallback and persisted replay summary.
+- Added deterministic one-outcome-per-market selection for backtest replay, using the latest resolved outcome in the requested window and preventing duplicate/corrected outcome records from multiplying predictions, EV counts, or paper-trade settlements.
+- Added regression coverage for duplicate resolved outcomes in backtest replay.
+- Added explicit `TRADING_MODE` and `LIVE_TRADING_ENABLED` settings with `paper` and `false` defaults, plus tests proving live execution is allowed only when both settings are explicitly enabled.
+- Added parser support for explicit-year dates such as `May 5, 2026` and test coverage for reference-clock target-date parsing.
+- Added compact latest-signal fields to `GET /dashboard/summary` for parsed target, forecast precipitation, model YES probability, market YES price, YES edge, EV recommendation, and paper-trade status.
+- Added inline latest-signal display to the read-only frontend market workflow table.
+- Added fixture-backed public market-data coverage for nested CLOB orderbook payloads and nested Gamma-style stats-only payloads.
+- Added a read-only Vite + React frontend dashboard under `frontend/` for `GET /dashboard/summary`.
+- Added typed frontend API models for health, dashboard market summaries, paper-buy opportunities, open paper trades, and workflow status.
+- Added a Vite dev-server `/api` proxy to the FastAPI backend so the first local dashboard pass does not require backend CORS changes.
+- Added read-only `GET /dashboard/summary` for recent market workflow rows, paper-buy opportunities, and open paper trades.
+- Added dashboard API tests for empty and full paper-trading workflow summary responses.
 - Added latest forecast snapshot and latest paper trade fields to market detail responses.
 - Added `has_paper_trade` and `monitor_paper_trade` workflow status support for markets with simulated trades.
 - Added the new market-detail forecast and paper-trade IDs to the scripted demo output.
@@ -21,6 +58,29 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Changed
 
+- Updated `scripts/paper_market_runner.py` so each CLI pass persists a durable run record while preserving one-shot defaults and bounded loop behavior.
+- Updated README, API workflow, local demo, data-model, roadmap, and trading-mode docs for persisted paper runner runs and the new one-shot API.
+- Updated README, data-source, API workflow, and roadmap docs for search-oriented public market discovery.
+- Updated public paper runner docs with an explicit bounded overnight command and clarified that loop mode cannot run indefinitely without a stop condition.
+- Updated README, local demo, API workflow, roadmap, and trading-mode docs for the one-shot public-market paper runner and its paper-only safety boundary.
+- Updated dashboard/API workflow, roadmap, and local demo documentation for visible market source diagnostics.
+- Updated public market diagnostics to report `non_binary_outcomes`, `outcome_price_length_mismatch`, `missing_token_context`, and `empty_orderbook` for recognizable unsupported price shapes.
+- Updated outcome-price normalization so mismatched outcome and price arrays do not fabricate binary YES/NO prices.
+- Updated public market-data documentation for the expanded partial-payload diagnostics.
+- Updated public market price normalization to read market data from common `market`/`data` wrappers while preserving the original raw payload, and to treat token `lastPrice`/`last_price` fields as usable YES/NO prices.
+- Updated public market-data documentation for wrapped Gamma-style payload and token last-price fixture coverage.
+- Updated dashboard/frontend copy from strictly read-only to paper-demo capable while preserving the no-live-execution boundary.
+- Updated README and demo/API/roadmap docs for the safe paper workflow endpoint and dashboard action.
+- Updated dashboard API/frontend contracts and docs for the new `evaluation_summary` field.
+- Updated the mock NYC discovery market and scripted demo selector to use a `tomorrow` target date instead of a stale fixed May 5 demo date.
+- Updated backtesting, trading-mode, live-safety, data-model, API workflow, README, roadmap, and local-demo documentation for outcome selection, explicit paper-mode settings, and the refreshed mock demo market.
+- Removed a stale placeholder backtest report module and an obsolete Open-Meteo normalization TODO.
+- Updated dashboard API tests, frontend API types, and dashboard documentation for richer read-only workflow inspection.
+- Updated market price normalization to read top-of-book bid/ask levels from nested `book`, `orderbook`, or `order_book` containers and liquidity/volume from nested stats containers.
+- Updated `docs/DATA_SOURCES.md` and `docs/ROADMAP.md` for the expanded public market-data fixture coverage.
+- Documented frontend setup and the read-only dashboard boundary in `README.md`, `docs/LOCAL_DEMO.md`, `docs/API_WORKFLOWS.md`, `docs/DEMO_PLAN.md`, and `docs/ROADMAP.md`.
+- Updated `.gitignore` for frontend dependency and build outputs.
+- Documented the dashboard summary endpoint as the first frontend-ready backend contract.
 - Updated market detail API docs to describe the full latest paper-trading inspection chain.
 - Updated strategy evaluation to use the shared paper risk-sizing helper and include sizing rationale in actionable recommendation reasons.
 - Documented the current paper sizing rule in `docs/API_WORKFLOWS.md`, `docs/TRADING_MODES.md`, `docs/DATA_MODEL.md`, `docs/MODELING_PLAN.md`, and `docs/ROADMAP.md`.
@@ -32,6 +92,49 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py`; all 6 focused paper-runner tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run`; public dry-run discovered 25 markets and recorded `price_refresh_failed_used_stored_snapshot=10` instead of hard-skipping those refresh failures.
+- Ran `.\.venv\Scripts\pytest.exe`; all 122 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_api_paper_runner.py tests\test_paper_market_runner_cli.py tests\test_migrations.py`; all 11 focused runner/API/migration tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_api_paper_runner.py tests\test_migrations.py`; all 8 focused runner/API/migration tests passed after adding failed-run persistence coverage.
+- Ran `.\.venv\Scripts\pytest.exe`; all 121 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py`; all 39 focused public market integration tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner_cli.py`; all 4 CLI tests passed.
+- Ran `.\.venv\Scripts\python.exe -m py_compile scripts\paper_market_runner.py`; compilation succeeded after adding loop mode.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --help`; CLI help showed the loop-mode flags.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py`; all 3 runner tests passed.
+- Ran `.\.venv\Scripts\python.exe -m py_compile scripts\paper_market_runner.py app\strategy\paper_market_runner.py`; compilation succeeded.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --help`; CLI help rendered successfully.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; all 3 dashboard API tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py`; all 36 focused public market-data tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py`; all 31 focused public market-data tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_demo.py tests\test_api_dashboard.py`; all 4 focused demo/dashboard tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after adding the dashboard action.
+- Ran `.\.venv\Scripts\pytest.exe`; all 98 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\demo_workflow.py --sqlite-memory`; the deterministic workflow completed through an OPEN paper trade.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after final docs updates.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py tests\test_backtesting.py`; all 16 focused dashboard/backtesting tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 96 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\demo_workflow.py --sqlite-memory`; the deterministic workflow completed through an OPEN paper trade.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after the final docs update.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 14 focused backtesting tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_config.py tests\test_health.py`; all 6 focused config and health tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_market_discovery.py tests\test_api_markets.py`; all 38 focused parser/discovery/market API tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 96 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\demo_workflow.py --sqlite-memory`; the deterministic workflow completed through an OPEN paper trade using the refreshed `mock-nyc-rain-tomorrow` market.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; both dashboard API tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 88 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py`; all 28 focused market tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 88 backend tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed.
+- Ran `npm audit --audit-level=moderate` after updating the Vite toolchain; npm reported 0 vulnerabilities during the install audit.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; both dashboard API tests passed after adding the frontend.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; both dashboard API tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 86 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\demo_workflow.py --sqlite-memory`; the deterministic workflow completed through an OPEN paper trade.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_api_markets.py`; all 13 market API tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_ev.py`; all 17 focused EV and risk-sizing tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_api_provenance.py tests\test_api_markets.py tests\test_ev.py`; all 32 focused API/provenance/EV tests passed.

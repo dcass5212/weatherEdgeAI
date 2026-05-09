@@ -29,6 +29,7 @@ def test_alembic_upgrade_head_creates_current_schema(tmp_path, monkeypatch) -> N
         "predictions",
         "ev_recommendations",
         "paper_trades",
+        "paper_runner_runs",
         "resolved_outcomes",
         "alembic_version",
     }.issubset(set(inspector.get_table_names()))

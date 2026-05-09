@@ -18,6 +18,8 @@ Allowed behavior:
 - Use simple simulated risk sizing from EV recommendations.
 - Use mock, fixture, or public market data.
 - Exercise execution-like logic through paper adapters.
+- Run guarded one-shot public-market paper passes that create only simulated paper trades within configured caps.
+- Persist public paper-run history for auditability and automated validation.
 
 Forbidden behavior:
 
@@ -68,9 +70,18 @@ Forbidden behavior:
 
 Paper mode is the default. If configuration is missing, malformed, or ambiguous, the system should behave as paper mode or fail closed.
 
+Current configuration:
+
+```text
+TRADING_MODE=paper
+LIVE_TRADING_ENABLED=false
+```
+
+The application settings expose `live_execution_allowed`, which is true only when `TRADING_MODE=live` and `LIVE_TRADING_ENABLED=true`. There is still no live execution adapter or order-placement endpoint; this is only the first explicit configuration gate for future live work.
+
 Current paper sizing is deliberately simple and research-only. Actionable EV recommendations convert positive probability edge into simulated units by multiplying edge by 100 and capping the result at 10 units. This cap is not a live-trading risk limit; live execution still requires separate safety controls, audit logging, kill-switch behavior, and tested exposure limits.
 
-Live mode must require an explicit setting such as:
+Future live mode must require an explicit setting such as:
 
 ```text
 TRADING_MODE=live

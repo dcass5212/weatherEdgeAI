@@ -4,9 +4,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import PaperTrade, ParsedMarket, WeatherForecastSnapshot
+from app.db.models import Market, PaperRunnerRun, PaperTrade, ParsedMarket, WeatherForecastSnapshot
 from app.markets.market_discovery import DiscoveredMarket, DiscoveredPriceSnapshot
-from app.strategy.paper_market_runner import PaperMarketRunner, PaperMarketRunnerConfig
+from app.markets.polymarket_client import PublicMarketDataError
+from app.strategy.paper_market_runner import PaperMarketRunner, PaperMarketRunnerConfig, run_paper_market_once_recorded
 
 
 def _discovered_market(
@@ -55,6 +56,17 @@ class FakeDiscoveryService:
     async def discover_weather_markets(self, source: str, keywords: list[str] | None = None, limit: int = 50) -> list[DiscoveredMarket]:
         assert source == "polymarket"
         return self.markets[:limit]
+
+
+class FailingRefreshService:
+    async def fetch_price_payload(self, source: str, source_market_id: str, condition_id: str | None) -> dict:
+        raise PublicMarketDataError(
+            endpoint=f"/prices/{condition_id}",
+            reason="http_status_error",
+            attempts=1,
+            status_code=404,
+            retryable=False,
+        )
 
 
 async def fixture_forecast(parsed_market: ParsedMarket) -> WeatherForecastSnapshot:
@@ -137,3 +149,72 @@ async def test_paper_market_runner_skips_ineligible_prices(db_session: Session) 
     assert report.skipped["missing_binary_prices"] == 1
     assert report.skipped["liquidity_below_min"] == 1
     assert report.skipped["spread_above_max"] == 1
+
+
+@pytest.mark.anyio
+async def test_paper_market_runner_uses_stored_price_snapshot_when_refresh_404s(db_session: Session) -> None:
+    runner = PaperMarketRunner(
+        db=db_session,
+        config=PaperMarketRunnerConfig(max_trades=1, quantity=2.0, refresh_prices=True),
+        discovery_service=FakeDiscoveryService([_discovered_market()]),
+        refresh_service=FailingRefreshService(),
+        forecast_provider=fixture_forecast,
+    )
+
+    report = await runner.run_once()
+
+    assert report.processed == 1
+    assert report.paper_trades_created == 1
+    assert report.skipped["price_refresh_failed_used_stored_snapshot"] == 1
+    assert "price_refresh_failed" not in report.skipped
+
+    market = db_session.query(Market).one()
+    assert market.source_diagnostics["price_status"] == "stale_supported"
+    assert market.source_diagnostics["fallback_price_snapshot_used"] is True
+    assert market.source_diagnostics["public_source_error"]["status_code"] == 404
+
+
+@pytest.mark.anyio
+async def test_recorded_paper_market_runner_persists_run_report(db_session: Session) -> None:
+    config = PaperMarketRunnerConfig(refresh_prices=False, max_trades=1, quantity=2.0)
+    runner = PaperMarketRunner(
+        db=db_session,
+        config=config,
+        discovery_service=FakeDiscoveryService([_discovered_market()]),
+        forecast_provider=fixture_forecast,
+    )
+
+    run = await run_paper_market_once_recorded(db_session, config=config, runner=runner)
+
+    assert run.status == "completed"
+    assert run.source == "polymarket"
+    assert run.completed_at is not None
+    assert run.config_json["max_trades"] == 1
+    assert run.config_json["create_trades"] is True
+    assert run.discovered == 1
+    assert run.paper_trades_created == 1
+    assert run.skipped_json == {}
+    assert run.errors_json == []
+
+    stored_run = db_session.get(PaperRunnerRun, run.id)
+    assert stored_run is not None
+    assert stored_run.report_json["paper_trades_created"] == 1
+
+
+@pytest.mark.anyio
+async def test_recorded_paper_market_runner_persists_failed_run(db_session: Session) -> None:
+    class FailingRunner:
+        async def run_once(self):
+            raise RuntimeError("source unavailable")
+
+    with pytest.raises(RuntimeError):
+        await run_paper_market_once_recorded(
+            db_session,
+            config=PaperMarketRunnerConfig(refresh_prices=False),
+            runner=FailingRunner(),
+        )
+
+    stored_run = db_session.scalars(select(PaperRunnerRun)).one()
+    assert stored_run.status == "failed"
+    assert stored_run.completed_at is not None
+    assert stored_run.errors_json == ["source unavailable"]

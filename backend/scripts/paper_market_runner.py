@@ -20,7 +20,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.session import SessionLocal  # noqa: E402
-from app.strategy.paper_market_runner import PaperMarketRunner, PaperMarketRunnerConfig, PaperMarketRunnerReport  # noqa: E402
+from app.strategy.paper_market_runner import PaperMarketRunnerConfig, PaperMarketRunnerReport, run_paper_market_once_recorded  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -126,8 +126,23 @@ def _print_report(report: PaperMarketRunnerReport) -> None:
 async def _run_once(args: argparse.Namespace) -> PaperMarketRunnerReport:
     db = SessionLocal()
     try:
-        runner = PaperMarketRunner(db=db, config=_config_from_args(args))
-        return await runner.run_once()
+        run = await run_paper_market_once_recorded(db=db, config=_config_from_args(args))
+        if not isinstance(run.report_json, dict):
+            raise RuntimeError("paper runner run completed without a report")
+        return PaperMarketRunnerReport(
+            discovered=run.discovered,
+            created=run.created,
+            updated=run.updated,
+            price_snapshots_created=run.price_snapshots_created,
+            processed=run.processed,
+            parsed=run.parsed,
+            forecasts_created=run.forecasts_created,
+            predictions_created=run.predictions_created,
+            recommendations_created=run.recommendations_created,
+            paper_trades_created=run.paper_trades_created,
+            skipped=run.skipped_json,
+            errors=run.errors_json,
+        )
     finally:
         db.close()
 

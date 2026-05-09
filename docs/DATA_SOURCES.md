@@ -6,20 +6,30 @@ V1 is designed around Polymarket-style market data for active events, market que
 
 The first implementation uses public market-data clients and mock data for deterministic tests and demos. Authenticated trading APIs are a later phase after paper trading and safety controls are in place.
 
+Public discovery now uses Gamma `public-search` as the first read-only entry point for keyword-based weather market discovery. The discovery service queries by configured keywords, deduplicates returned events, expands event child markets, filters inactive or closed child markets, and falls back to the active events listing only when search returns no candidates. This keeps real public discovery closer to the reviewer workflow while preserving the older active-event path as a backup.
+
 Price snapshot normalization is fixture-backed for representative public Polymarket-style shapes:
 
 - Gamma market records with `outcomes` and `outcomePrices`.
 - Gamma event-wrapped weather markets where the child market question may rely on parent event title, category, or tags for weather context.
 - CLOB orderbook payloads with bid and ask levels.
+- Nested CLOB orderbook payloads where bid and ask levels are under `book`, `orderbook`, or `order_book`.
 - CLOB token price maps where `BUY` represents the best ask and `SELL` represents the best bid for YES/NO token IDs.
 - Fresh CLOB token price maps that rely on stored Gamma market context for outcome and token-id metadata.
 - Malformed Gamma-style price fields where diagnostics should show parse failures even when liquidity or volume fields are still usable.
+- Gamma-style payloads with nested `stats` liquidity and volume but no usable price fields, which should remain partial diagnostics rather than silently looking supported.
+- Wrapped Gamma-style market payloads where the market object is nested under `market` or `data`.
+- Gamma-style token rows that expose `lastPrice` or `last_price` instead of a generic `price` field.
+- Unsupported or partial public price shapes with specific diagnostics, including non-binary outcomes, outcome/price length mismatches, missing token context for CLOB price maps, and empty orderbooks.
 
 These fixtures preserve the offline demo/test path and do not require authenticated order placement.
 
 Market ingestion now also persists `source_diagnostics` on each market. Diagnostics record whether the source payload exposed usable market metadata, condition IDs, binary YES/NO prices, top-of-book data, liquidity, volume, status, and resolution metadata. Unsupported or partial price payloads keep explicit reasons such as `no_supported_price_fields`, `price_fields_not_parseable`, or `missing_binary_yes_no_prices` so integration gaps can be debugged from stored records.
+More specific public-price reasons are used when the payload shape is recognizable but cannot safely produce binary YES/NO prices: `non_binary_outcomes`, `outcome_price_length_mismatch`, `missing_token_context`, and `empty_orderbook`.
 
 Price refresh is read-only. For Polymarket-sourced markets, `POST /markets/{market_id}/price-snapshots/refresh` fetches a fresh public payload through the market-data client, combines it with stored market context when fresh token prices need outcome/token metadata, normalizes it, persists a new immutable price snapshot, and updates source diagnostics. Public requests use a small retry budget for transient failures and rate limits. If a public refresh still fails, the market keeps `source_refresh_failed` diagnostics with the endpoint, failure reason, attempt count, status code when available, and retryable flag. For manually seeded or non-public markets, the route still supports stored-payload refresh so local demos and fixture-backed review do not require network access.
+
+The public paper runner treats discovery-time price snapshots as a usable fallback when a later read-only refresh fails. In that case it records `price_status: "stale_supported"`, `source_refresh_failed`, and `fallback_price_snapshot_id`, then continues eligibility checks against the stored immutable snapshot. This is intentionally paper-runner behavior; it does not hide the provider error and does not enable live execution.
 
 ## Weather Forecasts
 

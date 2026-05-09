@@ -26,6 +26,8 @@ Show that WeatherEdge AI can:
 7. Replay resolved outcomes and paper trades through backtesting.
 8. Explain what safety controls are required before live trading is enabled.
 
+The frontend dashboard can now be used as the visual entry point for the paper demo. Click `Run Paper Demo` to call the safe mock/fixture workflow, then inspect the refreshed workflow, signal, paper-trade, and evaluation sections. The backend API remains the source of truth for the workflow.
+
 ## Demo Setup
 
 From the repository root:
@@ -60,6 +62,16 @@ Expected:
   "service": "WeatherEdge AI"
 }
 ```
+
+Optional read-only dashboard:
+
+```powershell
+cd C:\weatherEdgeAI\frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` after the backend is running. The dashboard reads health and dashboard summary data, and its `Run Paper Demo` button calls only the paper-safe `POST /demo/paper-workflow` endpoint.
 
 For a scripted walkthrough, run:
 
@@ -264,6 +276,7 @@ The key design choice is snapshotting. Market prices, weather forecasts, predict
 
 ## Current Demo Limitations
 
+- The first frontend dashboard shows workflow status, latest signals, backtest/calibration context, stored opportunities, and open paper trades. It includes one safe paper-demo action; broader workflow controls are intentionally deferred.
 - Backtesting currently uses persisted outcomes or deterministic seed fixtures for reliable demos. Open-Meteo archive outcome resolution is implemented for parsed precipitation markets, and an optional credential-gated NOAA/NCEI CDO daily `PRCP` client is available for manual outcome resolution when `NOAA_CDO_TOKEN` is configured.
 - Parser support is limited to V1 precipitation threshold wording, with clearer failures for unsupported questions, missing thresholds, and unsupported units.
 - Location support uses a deterministic fixture geocoder for a few demo cities and should later add a broader provider.

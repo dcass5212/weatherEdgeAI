@@ -196,3 +196,27 @@ class PaperTrade(TimestampMixin, Base):
 
     market: Mapped["Market"] = relationship(back_populates="paper_trades")
     recommendation: Mapped["EVRecommendation | None"] = relationship(back_populates="paper_trades")
+
+
+class PaperRunnerRun(TimestampMixin, Base):
+    __tablename__ = "paper_runner_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="running", nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    discovered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    price_snapshots_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    parsed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    forecasts_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    predictions_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    recommendations_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    paper_trades_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    errors_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    report_json: Mapped[dict | None] = mapped_column(JSON)

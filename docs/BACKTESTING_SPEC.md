@@ -42,6 +42,12 @@ The replay runner should:
 - Skip or report records with missing required inputs.
 - Produce deterministic output for seed fixtures.
 
+Current outcome-selection rule:
+
+- Within the requested evaluation window, the runner selects one resolved outcome per market.
+- If multiple resolved outcomes exist for the same market, the latest `resolved_at` record wins, with the highest record ID used as a deterministic tie-breaker.
+- Metrics, EV recommendation counts, and paper-trade settlement summaries use that selected outcome instead of multiplying predictions by every outcome row.
+
 Current initial implementation:
 
 - `POST /backtests/resolved-outcomes` stores manually supplied YES/NO resolved outcomes.
@@ -50,10 +56,10 @@ Current initial implementation:
 - Open-Meteo archive remains the default observed-weather provider.
 - The observed-weather resolver can normalize NOAA/NCEI CDO-style daily `PRCP` records with explicit precipitation units.
 - `resolution_provider: "noaa_cdo_daily"` uses the credential-gated NOAA/NCEI CDO client when `NOAA_CDO_TOKEN` is configured. Missing credentials fail before any provider request.
-- `POST /backtests/run` replays persisted predictions joined to resolved outcomes for a model version and date window.
+- `POST /backtests/run` replays persisted predictions against the selected resolved outcome for each market for a model version and date window.
 - `seed_fixtures: true` inserts and replays a deterministic small fixture history.
 - The initial report includes prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, a sample-size note, EV recommendation count, paper-trade count, paper PnL, paper ROI, and max drawdown.
-- Backtest responses include `coverage_diagnostics` so skipped or unevaluated records are visible. The diagnostics report candidate predictions for the selected model, evaluated prediction/outcome pairs, predictions missing outcomes in the requested window, resolved outcomes without matching selected-model predictions, and predictions excluded because they belong to another model version.
+- Backtest responses include `coverage_diagnostics` so skipped or unevaluated records are visible. The diagnostics report candidate predictions for the selected model, evaluated prediction/outcome pairs, predictions missing outcomes in the requested window, resolved outcomes without matching selected-model predictions, and predictions excluded because they belong to another model version. `resolved_outcome_count_in_window` still reports raw outcome records, so duplicate or corrected outcome rows remain visible even though replay selects one outcome per market.
 
 ## Metrics
 

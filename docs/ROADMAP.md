@@ -20,21 +20,24 @@ Paper trading must be implemented first and remain the default mode for local de
 
 ## Current Project Status
 
-The project is currently around Phase 5 in feature shape. Phase 1 persistence is implemented and verified with Alembic, Docker Compose, and local PostgreSQL. Phases 2-4 have a working end-to-end paper-trading research flow. Phase 5 now has initial resolved-outcome replay, calibration buckets, sample-size reporting, coverage diagnostics, paper-trade replay summaries, and Open-Meteo archive observed-weather outcome resolution, but still needs broader provider coverage and portfolio polish before it is portfolio-ready.
+The project is currently around Phase 5 in feature shape. Phase 1 persistence is implemented and verified with Alembic, Docker Compose, and local PostgreSQL. Phases 2-4 have a working end-to-end paper-trading research flow. Phase 5 now has resolved-outcome replay with one selected outcome per market, calibration buckets, sample-size reporting, coverage diagnostics, paper-trade replay summaries, and Open-Meteo archive observed-weather outcome resolution, but still needs broader provider coverage and portfolio polish before it is portfolio-ready.
 
 Implemented:
 
 - FastAPI backend structure.
-- SQLAlchemy ORM models for markets, parsed markets, price snapshots, forecast snapshots, predictions, EV recommendations, resolved outcomes, and paper trades.
+- SQLAlchemy ORM models for markets, parsed markets, price snapshots, forecast snapshots, predictions, EV recommendations, resolved outcomes, paper trades, and paper runner runs.
 - Pydantic schemas.
 - Market, weather, prediction, strategy, paper-trade, and backtest route modules.
 - Mock market discovery and a Polymarket-style public discovery path.
+- Keyword-based public discovery through Gamma `public-search`, with event deduplication, child-market expansion, inactive/closed child filtering, and active-event fallback.
 - Idempotent persistence for discovered market records.
 - Discovery-time market price snapshot persistence.
 - `POST /markets/{market_id}/price-snapshots/refresh` for read-only price snapshot refresh from fresh public source payloads on Polymarket markets, with stored-payload support for manual or fixture-backed markets.
 - Source-aware price normalization for mock, common Polymarket-style market fields, token outcome fields, CLOB token price maps, and orderbook-like bid/ask payloads.
 - Market-level source diagnostics for supported, partial, and unsupported public market payloads.
 - Public market-data request retry handling with persisted diagnostics for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts during price refresh.
+- Public paper runner fallback to the latest stored discovery-time binary price snapshot when a read-only public price refresh fails, with `stale_supported` diagnostics preserving the provider error and fallback snapshot ID.
+- Captured-style fixture coverage for nested CLOB orderbook containers, nested Gamma-style stats payloads, wrapped Gamma-style market payloads, token `lastPrice` rows, and unsupported partial-price shapes, including specific diagnostics when liquidity/volume are present without binary YES/NO prices.
 - Parse route no longer creates demo fallback price snapshots; price provenance now comes from discovery or explicit refresh.
 - Event-level weather context matching for Polymarket-style discovery when child market questions rely on parent event metadata.
 - Fixture-backed diagnostics for malformed Gamma-style price fields that still expose usable liquidity or volume fields.
@@ -42,6 +45,7 @@ Implemented:
 - Parser failure reasons for non-precipitation questions, missing thresholds, unsupported units, and unsupported precipitation wording.
 - Deterministic fixture geocoder for local demos and tests.
 - Optional Open-Meteo geocoding provider behind the geocoding adapter.
+- Explicit `TRADING_MODE` and `LIVE_TRADING_ENABLED` settings, with paper mode as the default and live execution disallowed unless both live settings are enabled.
 - Open-Meteo forecast client support.
 - Forecast snapshot persistence.
 - Fixture-backed forecast normalization for mixed values, missing values, unit conversion, temperature summaries, and raw payload preservation.
@@ -50,6 +54,10 @@ Implemented:
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
 - Market detail workflow status showing completed pipeline steps and the next recommended backend action.
 - Market detail reads expose the latest forecast snapshot and latest paper trade alongside parsed market, price snapshot, prediction, EV recommendation, and workflow status.
+- Read-only dashboard summary endpoint for recent market workflow rows, compact source diagnostics, compact latest signal values, backtest/calibration metrics, paper-buy opportunities, and open paper trades.
+- Paper-only demo workflow endpoint, `POST /demo/paper-workflow`, for one-click mock discovery, parsing, fixture forecast creation, prediction, EV evaluation, and simulated paper-trade creation.
+- One-shot public-market paper runner script with discovery, price refresh, eligibility skips, forecast/model/EV evaluation, max-trade caps, duplicate open-side checks, and simulated paper-trade creation only.
+- Persisted `paper_runner_runs` records and API endpoints for one-shot public paper-run execution and run-history inspection.
 - Paper-trade endpoints.
 - Scripted end-to-end demo workflow for mock discovery, parsing, deterministic forecast snapshot creation, prediction, EV evaluation, and paper-trade creation.
 - README and local demo docs now include architecture flow, expected smoke-demo output, representative seed backtest output, and current observed-outcome boundaries.
@@ -57,7 +65,7 @@ Implemented:
 - Open-Meteo archive observed precipitation resolver that creates source-attributed resolved outcomes from the latest parsed market.
 - NOAA/NCEI CDO-style daily `PRCP` observed precipitation normalization for fixture/manual provider payloads with explicit units.
 - Credential-gated NOAA/NCEI CDO daily precipitation client behind the observed-outcome resolver, with mocked tests and Open-Meteo remaining the default demo path.
-- Minimal backtest replay over persisted resolved predictions.
+- Minimal backtest replay over persisted resolved predictions, selecting one latest resolved outcome per market inside the requested evaluation window.
 - Deterministic seed-fixture backtest replay for local demos and tests.
 - Backtest win rate, Brier score, log loss, calibration buckets, and sample-size notes.
 - Backtest EV recommendation counts and paper-trade PnL, ROI, and max-drawdown summaries.
@@ -66,21 +74,24 @@ Implemented:
 
 Partially implemented:
 
-- Real public market price coverage has fixture coverage and persisted diagnostics for several documented shapes, including event-wrapped weather markets and malformed Gamma-style price fields, but should keep expanding as unsupported source response variations are captured.
+- Real public market price coverage has fixture coverage and persisted diagnostics for several documented shapes, including event-wrapped weather markets, malformed Gamma-style price fields, nested CLOB orderbooks, nested stats-only payloads, wrapped Gamma-style market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, and empty orderbooks, but should keep expanding as unsupported source response variations are captured.
 - Polymarket price refresh now calls the public source client for fresh payloads and can combine fresh CLOB token price maps with stored Gamma market context when the fresh response omits outcome and token-id metadata, but broader real response capture and endpoint-shape hardening should continue as unsupported variations are found.
+- A public-market paper runner exists for manual validation and bounded overnight loops, with durable run history now persisted. Alerting and production-grade retry scheduling remain future work.
 - Prediction and EV routes use stored inputs and expose the main provenance IDs.
 - Market detail reads expose computed workflow status so reviewers can see whether price refresh, parsing, forecasting, prediction, or strategy evaluation is next.
 - Market detail reads now expose the full latest paper-trading inspection chain, including forecast snapshot and paper trade records.
+- A first frontend contract exists through `GET /dashboard/summary`, keeping the dashboard read-only and backed by existing paper-trading records with compact source diagnostics, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, and calibration values.
 - Location resolution has a deterministic fixture geocoder by default, plus an opt-in Open-Meteo geocoding provider for broader manual coverage.
-- Backtesting has an initial replay path for persisted predictions joined to resolved outcomes, plus seed-fixture support, calibration buckets, sample-size reporting, coverage diagnostics, and paper-trade result summaries.
+- Backtesting has an initial replay path for persisted predictions evaluated against one selected outcome per market, plus seed-fixture support, calibration buckets, sample-size reporting, coverage diagnostics, and paper-trade result summaries.
 
 Known gaps:
 
 - Deterministic fixture geocoding remains the default for local demos and tests. Open-Meteo geocoding is available as an opt-in provider, but captured edge-case coverage should continue expanding.
 - Parser failure detail exists for common unsupported cases, but should keep improving as real unsupported market questions are captured.
-- Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including split fresh-price and stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
+- Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including nested orderbook payloads, nested stats-only payloads, wrapped market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, empty orderbooks, and split fresh-price/stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
 - Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
-- No frontend/dashboard.
+- Frontend UI has a dashboard with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, paper-trade inspection, and a safe `Run Paper Demo` action. Broader workflow controls remain a planned follow-up.
+- Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, and can continue from stored discovery-time prices when refresh fails but a usable binary snapshot exists. It is not yet a daemon with alerting.
 
 ## Phase 1: Persistence Foundation
 
@@ -120,7 +131,7 @@ Already present:
 
 - `POST /markets/discover`.
 - Mock discovery path.
-- Polymarket-style public discovery path.
+- Polymarket-style public discovery path using Gamma `public-search` first, with active-event fallback.
 - Idempotent market persistence by source and source market ID.
 - Raw market payload storage.
 - Basic precipitation market parser with coverage for common threshold wording.
@@ -132,7 +143,7 @@ Already present:
 
 Remaining work:
 
-- Continue adding captured real market fixture payloads for unsupported public price response variations and verify the stored diagnostics stay useful. Initial event-wrapped weather and malformed price-field fixtures are covered.
+- Continue adding captured real market fixture payloads for unsupported public price response variations and verify the stored diagnostics stay useful. Event-wrapped weather, malformed price-field, nested orderbook, nested stats-only, wrapped market, token `lastPrice`, non-binary outcome, outcome/price mismatch, missing-token-context, and empty-orderbook fixtures are covered.
 - Continue hardening market price snapshots during discovery and through the dedicated refresh endpoint as new fixtures reveal gaps.
 - Continue expanding public-source failure fixtures beyond the initial rate-limit, malformed JSON, and malformed payload coverage.
 - Remove or further isolate the parse-route demo fallback that creates a mock price snapshot for manually seeded markets. Done; parsing no longer creates price snapshots.
@@ -234,7 +245,7 @@ Objective: show ML judgment and research discipline, not just API plumbing.
 Work:
 
 - Add a workflow for resolved outcome records. Initial API create/list endpoints and Open-Meteo archive observed-weather resolution are implemented.
-- Implement a historical replay runner for stored markets, forecasts, predictions, and outcomes. Initial prediction/outcome replay is implemented.
+- Implement a historical replay runner for stored markets, forecasts, predictions, and outcomes. Initial prediction/outcome replay is implemented and selects one latest resolved outcome per market inside the evaluation window.
 - Compute Brier score and log loss. Initial report fields are implemented.
 - Add win rate, prediction count, and simple paper-trading result summaries. Initial win rate, prediction count, EV recommendation count, paper PnL, paper ROI, and max drawdown are implemented.
 - Add calibration bucket reporting. Initial calibration buckets are implemented.
@@ -267,10 +278,12 @@ Objective: make WeatherEdge AI useful against real public market data while keep
 Work:
 
 - Improve the Polymarket-style public market adapter around real response shapes.
+- Use search-oriented public discovery for keyword-based market ingestion. Done with Gamma `public-search`, event deduplication, child-market expansion, inactive/closed filtering, and active-event fallback.
 - Expand explicit source capability handling for markets, prices, liquidity, volume, status, and resolution metadata. Initial persisted diagnostics are implemented.
 - Add source refresh endpoints or jobs for market metadata and price snapshots. Initial read-only price refresh from fresh public Polymarket-style payloads is implemented, including stored market-context merging for token-only price responses.
 - Store provider errors and unsupported-market reasons in a debuggable way. Initial unsupported price reasons are persisted on markets.
 - Add rate-limit and retry behavior appropriate for public data access. Initial client retry handling and route-level persisted diagnostics are implemented for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts.
+- Preserve paper-runner progress when fresh public price endpoints fail but discovery already captured usable binary prices. Done with explicit `stale_supported` diagnostics and a `price_refresh_failed_used_stored_snapshot` runner count.
 - Add tests using captured fixture payloads, not live network calls.
 - Document what real market data is used and which live-execution capabilities are intentionally not enabled yet.
 
@@ -317,16 +330,19 @@ Portfolio value:
 
 ## Phase 8: Optional Frontend Dashboard
 
-Status: optional, after backend polish.
+Status: started with a read-only dashboard.
 
 Objective: add a visual demo only after the backend workflow is compelling.
 
 Work:
 
-- Build a compact dashboard for markets, forecasts, predictions, opportunities, and paper trades.
-- Show the end-to-end pipeline state for each market.
-- Surface data provenance: parsed target, forecast snapshot, model output, price snapshot, and EV recommendation.
-- Keep the UI operational and data-dense, not marketing-focused.
+- Build a compact dashboard for markets, forecasts, predictions, backtest/calibration metrics, opportunities, and paper trades. Initial read-only Vite + React dashboard is implemented.
+- Use `GET /dashboard/summary` as the first dashboard data contract. Done for the initial dashboard.
+- Show the end-to-end pipeline state for each market. Initial pipeline status is implemented.
+- Surface data provenance: parsed target, forecast snapshot, model output, price snapshot, EV recommendation, and public source diagnostics. Initial inline latest-signal and source-diagnostic fields are implemented; deeper market-detail inspection remains a follow-up.
+- Surface model evaluation context. Compact backtest metrics, paper replay metrics, calibration buckets, and sample-size notes are implemented through the dashboard summary contract.
+- Keep the UI operational and data-dense, not marketing-focused. Initial pass follows this direction.
+- Add safe paper-workflow action buttons after the read-only dashboard is stable. Initial `Run Paper Demo` button is implemented; granular workflow controls remain planned.
 
 Done when:
 

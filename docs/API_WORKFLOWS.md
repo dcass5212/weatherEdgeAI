@@ -47,7 +47,7 @@ Content-Type: application/json
 Current behavior:
 
 - `source: "mock"` returns deterministic demo markets.
-- Non-mock discovery uses a Polymarket-style public market source.
+- Non-mock discovery uses a Polymarket-style public market source. It searches Gamma `public-search` by keyword first, deduplicates event results, falls back to active event listing when search returns no candidates, and skips inactive or closed child markets.
 - Discovered markets are persisted idempotently by source and source market ID.
 - Discovery persists source-aware market price snapshots when source price data is available.
 - Discovery stores market-level `source_diagnostics` describing supported metadata, price, top-of-book, liquidity, volume, status, and resolution fields.
@@ -121,9 +121,12 @@ Current behavior:
 - Public source requests retry transient failures and rate limits within a small retry budget.
 - Fresh Polymarket price payloads are combined with stored market context when token-only price maps need the market's outcome and token-id metadata.
 - Non-public or manually seeded markets continue to use the stored raw source payload when present.
+- The public paper runner can continue from the latest stored discovery-time price snapshot when a read-only public price refresh fails but a usable binary YES/NO snapshot already exists. The market keeps `source_refresh_failed` diagnostics with `price_status: "stale_supported"` and a `fallback_price_snapshot_id`.
 - Normalizes common Polymarket-style fields such as YES/NO outcome prices, token outcome prices, midpoint or last trade price, CLOB orderbook bid/ask levels, CLOB token BUY/SELL price maps, spread, liquidity, and volume.
+- Handles common wrapped public payloads where the market object is nested under `market` or `data`, plus token rows that expose `lastPrice` or `last_price`.
 - Persists a new immutable `market_price_snapshots` record.
 - Updates the market's `source_diagnostics` for supported, partial, and unsupported payloads.
+- Records specific partial-price diagnostics for recognizable unsupported shapes, including `non_binary_outcomes`, `outcome_price_length_mismatch`, `missing_token_context`, and `empty_orderbook`.
 - Does not place orders, sign transactions, access credentials, or use authenticated trading APIs.
 
 Expected response fields:
@@ -148,6 +151,158 @@ Failure cases:
 - `409` when the market has no stored source payload.
 - `409` when the source payload does not include supported price fields. In that case the market record keeps diagnostics such as `price_status: "unsupported"` and unsupported reasons.
 - `502` when a public market-data source request fails. The market keeps source diagnostics with `source_refresh_failed` plus `public_source_error` fields for endpoint, reason, retry attempts, status code, and whether the failure was retryable.
+
+## Workflow 1B: Read Dashboard Summary
+
+Use the dashboard summary endpoint as the first frontend contract. It is read-only and aggregates the latest inspection records without creating trades, refreshing prices, or calling external providers.
+
+Request:
+
+```http
+GET /dashboard/summary
+```
+
+## Workflow 1C: Run Paper Demo Workflow
+
+Use this endpoint from the dashboard when you want one paper-only action to seed and advance the deterministic demo workflow.
+
+Request:
+
+```http
+POST /demo/paper-workflow
+Content-Type: application/json
+
+{
+  "quantity": 10
+}
+```
+
+Current behavior:
+
+- Uses mock market discovery only.
+- Selects the deterministic New York City rain market.
+- Parses the market with the rule-based precipitation parser.
+- Uses the fixture geocoder and a deterministic `demo_fixture` forecast.
+- Runs the baseline precipitation model.
+- Evaluates EV against the mock discovery price snapshot.
+- Creates an open paper trade only when the recommendation is `PAPER_BUY_YES` or `PAPER_BUY_NO`.
+- Reuses existing parsed market, forecast, prediction, recommendation, and paper trade records on repeated clicks.
+- Does not call external market/weather providers, place orders, sign transactions, access credentials, or use live execution adapters.
+
+Expected response shape:
+
+```json
+{
+  "market_id": 1,
+  "parsed_market_id": 1,
+  "forecast_snapshot_id": 1,
+  "prediction_id": 1,
+  "recommendation_id": 1,
+  "paper_trade_id": 1,
+  "recommendation": "PAPER_BUY_YES",
+  "steps_completed": ["mock_discovery", "parsed_market", "fixture_forecast", "prediction", "ev_recommendation", "paper_trade"],
+  "message": "Paper demo workflow complete."
+}
+```
+
+Optional query parameters:
+
+- `market_limit`: recent market summaries to return, default `10`, max `50`.
+- `opportunity_limit`: recent actionable paper opportunities to return, default `10`, max `50`.
+- `trade_limit`: open paper trades to return, default `10`, max `50`.
+- `model_version`: model version for the compact evaluation summary, default `baseline_precip_v1`.
+
+Current behavior:
+
+- Returns recent markets with workflow status and latest record IDs for price snapshot, parsed market, forecast snapshot, prediction, EV recommendation, and paper trade.
+- Includes compact latest inspection values for the parsed weather target, forecast precipitation total, model YES probability, market YES price, YES edge, EV recommendation, and paper-trade status.
+- Includes compact source diagnostics for each recent market: `source`, `price_status`, `unsupported_reasons`, and whether a public source error was recorded.
+- Returns recent paper-buy opportunities.
+- Returns open paper trades.
+- Returns a compact backtest and calibration summary. The endpoint first tries a read-only persisted replay over existing resolved outcomes for the requested model version. If no completed persisted replay exists, it returns deterministic seed-fixture metrics without writing seed records.
+- Does not place orders, create paper trades, refresh public data, or call weather providers.
+
+Expected response shape:
+
+```json
+{
+  "recent_markets": [
+    {
+      "market_id": 1,
+      "question": "Will New York City get more than 1 inch of rain tomorrow?",
+      "source": "mock",
+      "price_status": "supported",
+      "unsupported_reasons": [],
+      "has_public_source_error": false,
+      "latest_price_snapshot_id": 1,
+      "latest_parsed_market_id": 1,
+      "latest_forecast_snapshot_id": 1,
+      "latest_prediction_id": 1,
+      "latest_ev_recommendation_id": 1,
+      "latest_paper_trade_id": 1,
+      "parsed_target": "New York City precipitation > 1 inch",
+      "forecast_precip_total": 1.6,
+      "forecast_precip_unit": "inch",
+      "model_probability_yes": 0.75,
+      "market_price_yes": 0.44,
+      "edge_yes": 0.31,
+      "recommendation": "PAPER_BUY_YES",
+      "paper_trade_status": "OPEN",
+      "workflow_status": {
+        "has_price_snapshot": true,
+        "has_parsed_market": true,
+        "has_forecast_snapshot": true,
+        "has_prediction": true,
+        "has_ev_recommendation": true,
+        "has_paper_trade": true,
+        "next_action": "monitor_paper_trade"
+      }
+    }
+  ],
+  "opportunities": [],
+  "open_paper_trades": [],
+  "evaluation_summary": {
+    "model_version": "baseline_precip_v1",
+    "source": "seed_fixture",
+    "status": "completed",
+    "num_predictions": 3,
+    "num_resolved_outcomes": 3,
+    "win_rate": 0.666667,
+    "brier_score": 0.194167,
+    "log_loss": 0.5716,
+    "paper_roi": 0.408451,
+    "paper_total_pnl": 5.8,
+    "max_drawdown": 4.5,
+    "sample_size_note": "Very small sample; use metrics only to verify the replay workflow.",
+    "calibration_buckets": []
+  }
+}
+```
+
+### Frontend Usage
+
+The `frontend/` app is the first dashboard implementation for this contract. It is intentionally read-only and uses the Vite dev-server proxy at `/api` to call the FastAPI backend locally.
+
+Current frontend behavior:
+
+- Reads `GET /health`.
+- Reads `GET /dashboard/summary`.
+- Shows recent market workflow rows with compact latest parsed target, forecast, model, price, EV, and paper-trade status values.
+- Shows compact market source diagnostics, including supported/partial/unsupported price status and unsupported reasons.
+- Shows compact backtest metrics, paper replay metrics, calibration buckets, and sample-size context.
+- Shows paper-buy opportunities and open paper trades.
+- Provides a `Run Paper Demo` button that calls only `POST /demo/paper-workflow`.
+- Does not expose live-trading controls.
+
+Run it after starting the backend:
+
+```powershell
+cd C:\weatherEdgeAI\frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`.
 
 ## Workflow 2: Parse A Market
 
@@ -385,6 +540,7 @@ Content-Type: application/json
 Current behavior:
 
 - Replays stored predictions joined to `resolved_outcomes` by market.
+- Selects one latest resolved outcome per market in the requested evaluation window before calculating metrics, so corrected or duplicate outcome rows do not multiply predictions.
 - Filters by model version and resolved-at date window.
 - Reports prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, and a sample-size note.
 - Reports EV recommendation count, eligible paper-trade count, settlement PnL, paper ROI, and max drawdown for trades linked to recommendations from the selected model version.
@@ -560,6 +716,65 @@ Use this sequence for the portfolio demo:
 9. `POST /paper-trades`
 10. `GET /markets/{market_id}`
 11. `GET /strategy/opportunities`
+12. `GET /dashboard/summary`
+
+For the browser-first demo, start FastAPI and the frontend, then click `Run Paper Demo` in the dashboard. That button calls `POST /demo/paper-workflow` and refreshes `GET /dashboard/summary`.
+
+## One-Shot Public Paper Runner
+
+For manual public-market paper validation, run the guarded script from the backend directory after PostgreSQL is running and migrations are applied:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+The runner performs one pass:
+
+1. Discovers public weather markets.
+2. Persists or updates market records and source price snapshots.
+3. Refreshes public prices unless `--no-refresh-prices` is set.
+4. Skips ineligible markets using binary-price, liquidity, spread, parse, and coordinate checks.
+5. Fetches forecasts, runs predictions, evaluates EV, and creates simulated paper trades within `--max-trades`.
+
+If public price refresh returns an error for a market that already has a usable stored binary price snapshot from discovery, the runner records `price_refresh_failed_used_stored_snapshot` and continues from that stored snapshot. This keeps public-source instability visible without throwing away inspectable discovery-time price data.
+
+Use `--dry-run` to evaluate without creating paper trades. The script is paper-only and does not call authenticated trading APIs, sign transactions, place orders, or create live execution records.
+
+For bounded overnight paper validation, enable loop mode explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --interval-minutes 30 --max-hours 10 --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+Loop mode requires `--max-hours` or `--max-runs` so the command does not run indefinitely by accident.
+
+Each pass persists a `paper_runner_runs` row with the config used, status, start/end timestamps, summary counts, skip reasons, errors, and the compact report payload.
+
+The same one-shot workflow is available through the API:
+
+```http
+POST /paper-runner/run-once
+Content-Type: application/json
+
+{
+  "keywords": ["rain", "weather", "precipitation"],
+  "discovery_limit": 25,
+  "process_limit": 10,
+  "max_trades": 3,
+  "quantity": 1,
+  "min_liquidity": 100,
+  "max_spread": 0.15,
+  "refresh_prices": true,
+  "dry_run": false
+}
+```
+
+Read recent persisted runs:
+
+```http
+GET /paper-runner/runs
+GET /paper-runner/runs/{run_id}
+```
 
 ## Trading Mode Boundary
 

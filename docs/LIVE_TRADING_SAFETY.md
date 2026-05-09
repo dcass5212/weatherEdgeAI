@@ -33,6 +33,13 @@ Recommended gates:
 
 If any gate is missing, the system should fail before order placement.
 
+Current implementation status:
+
+- `TRADING_MODE` exists and defaults to `paper`.
+- `LIVE_TRADING_ENABLED` exists and defaults to `false`.
+- The current settings helper only reports live execution as allowed when both values are explicitly enabled.
+- No authenticated trading client, live execution adapter, order-placement route, wallet signing, live positions, kill switch, audit log, or exposure-limit enforcement has been implemented yet.
+
 ## Credential Handling
 
 Credentials must not be stored in source files, fixtures, test snapshots, or logs.

@@ -17,6 +17,7 @@ Market
 Market
   -> MarketPriceSnapshot
   -> ResolvedOutcome
+  -> PaperRunnerRun
 ```
 
 ## `markets`
@@ -210,6 +211,26 @@ Important fields:
 Design note:
 
 - Resolved outcomes are required for real backtesting and calibration.
+- Backtest replay selects one resolved outcome per market inside the requested evaluation window. If multiple outcome records exist for a market, the latest `resolved_at` record is used, with highest record ID as a deterministic tie-breaker. Raw outcome counts remain visible in coverage diagnostics.
+
+## `paper_runner_runs`
+
+Stores one auditable record per public-market paper runner pass.
+
+Important fields:
+
+- `status`: `running`, `completed`, or `failed`.
+- `source`: market source used by the run.
+- `started_at` and `completed_at`: run timing.
+- `config_json`: discovery, processing, eligibility, dry-run, and trade-cap settings used.
+- Summary counts for discovered, processed, parsed, forecast, prediction, recommendation, and simulated trade creation.
+- `skipped_json`: skip reasons and counts.
+- `errors_json`: workflow errors captured during the run.
+- `report_json`: compact report payload returned by the runner.
+
+Design note:
+
+- These records make automated paper trading inspectable without implying live execution. They are operational run logs, not positions or orders.
 
 ## Lifecycle Of A Market
 
@@ -220,8 +241,9 @@ Design note:
 5. Model creates a `predictions` record.
 6. Strategy creates an `ev_recommendations` record.
 7. Optional simulated trade creates a `paper_trades` record.
-8. Later, final outcome is stored in `resolved_outcomes`.
-9. Backtesting compares predictions and paper trades against outcomes.
+8. Automated public paper passes also create `paper_runner_runs` records for auditability.
+9. Later, final outcome is stored in `resolved_outcomes`.
+10. Backtesting compares predictions and paper trades against outcomes.
 
 ## API Workflow Status
 
@@ -278,4 +300,4 @@ Live-trading-specific concepts that may be added later behind explicit safety co
 - Execution logs.
 - Kill-switch state.
 
-Paper-trading records and live execution records must remain separate. Paper mode must stay the default, and tests must prove paper-mode workflows cannot place real orders.
+Paper-trading records and live execution records must remain separate. Paper mode must stay the default, and tests must prove paper-mode workflows cannot place real orders. Current configuration defaults to `TRADING_MODE=paper` and `LIVE_TRADING_ENABLED=false`; live execution records do not exist yet.

@@ -50,6 +50,26 @@ Expected:
 }
 ```
 
+## Frontend Dashboard
+
+The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, and open paper trades from `GET /dashboard/summary`. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It does not call external providers or expose live trading.
+
+Start FastAPI first, then run the frontend from a second terminal:
+
+```powershell
+cd C:\weatherEdgeAI\frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+The frontend uses the Vite `/api` proxy to reach `http://127.0.0.1:8000`, so backend CORS configuration is not required for this local read-only pass.
+
 ## Scripted Demo
 
 After PostgreSQL is running and migrations are applied, run the full paper-trading workflow from the backend directory:
@@ -66,7 +86,7 @@ Expected output shape:
 ```text
 health: status='ok', service='WeatherEdge AI'
 discovery: discovered=2, created=2, updated=0, price_snapshots_created=2
-market: id=1, source_market_id='mock-nyc-rain-may-5'
+market: id=1, source_market_id='mock-nyc-rain-tomorrow'
 parsed: id=1, location_name='New York City', operator='>', threshold_value=1.0, threshold_unit='inch'
 forecast: id=1, forecast_source='demo_fixture', forecast_precip_total=1.6, forecast_precip_unit='inch'
 prediction: id=1, model_version='baseline_precip_v1', p_yes=0.75, p_no=0.25
@@ -126,6 +146,58 @@ Representative seed-fixture values:
   "max_drawdown": 4.5,
   "sample_size_note": "Very small sample; use metrics only to verify the replay workflow."
 }
+```
+
+## Public-Market Paper Runner
+
+Use this only after PostgreSQL is running and migrations are applied. The command performs one guarded paper-only pass over public weather markets:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+For a rehearsal that creates predictions and EV recommendations but no paper trades:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run
+```
+
+For a bounded overnight run, keep the command explicit:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --interval-minutes 30 --max-hours 10 --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+Current behavior:
+
+- Discovers public Polymarket-style weather markets.
+- Runs once by default; loop mode is enabled only with `--interval-minutes` and requires `--max-hours` or `--max-runs`.
+- Refreshes public price snapshots unless `--no-refresh-prices` is set.
+- Skips markets without binary prices, coordinates, eligible liquidity, or eligible spread.
+- Parses supported precipitation markets and resolves coordinates through the configured geocoding adapter.
+- Fetches Open-Meteo forecasts, runs the baseline model, evaluates EV, and creates capped simulated paper trades.
+- Skips an actionable side when an open paper trade already exists for that market and side.
+- Prints discovery, workflow, skip, and error counts.
+- Persists each pass in `paper_runner_runs` with the config, status, counts, skip reasons, errors, and compact report.
+- Does not place real orders, sign transactions, use authenticated trading APIs, or create live execution records.
+
+You can also trigger one one-shot pass through the API:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/paper-runner/run-once `
+  -ContentType "application/json" `
+  -Body '{"dry_run":true,"max_trades":1,"quantity":1,"min_liquidity":100,"max_spread":0.15}'
+```
+
+Inspect persisted runs:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/paper-runner/runs
 ```
 
 ## Optional NOAA Outcome Resolution
@@ -252,7 +324,26 @@ GET http://127.0.0.1:8000/strategy/opportunities
 GET http://127.0.0.1:8000/paper-trades
 ```
 
-### 9. Run Backtest Replay
+### 9. Inspect Dashboard Summary
+
+```http
+GET http://127.0.0.1:8000/dashboard/summary
+```
+
+This endpoint returns recent market workflow rows, compact latest parsed target/forecast/model/price/EV values, a compact backtest/calibration summary, paper-buy opportunities, and open paper trades for the frontend dashboard.
+
+To seed the same paper demo workflow from the API:
+
+```http
+POST http://127.0.0.1:8000/demo/paper-workflow
+Content-Type: application/json
+
+{
+  "quantity": 10
+}
+```
+
+### 10. Run Backtest Replay
 
 ```http
 POST http://127.0.0.1:8000/backtests/run
@@ -270,6 +361,7 @@ Content-Type: application/json
 
 - Paper trading is the default execution mode.
 - No real order should be placed during this demo.
+- The frontend dashboard has one safe `Run Paper Demo` action. Broader workflow controls are still planned.
 - Public market discovery can be demonstrated later, but mock discovery is preferred for reliable portfolio review.
 - Observed-weather resolution is implemented for Open-Meteo archive precipitation markets and optional credential-gated NOAA/NCEI CDO daily `PRCP` observations.
 - NOAA/NCEI CDO requires `NOAA_CDO_TOKEN`, is mocked in tests, and is not required for this demo.

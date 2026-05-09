@@ -7,14 +7,24 @@ trading APIs, signs orders, or creates live execution records.
 
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import EVRecommendation, Market, MarketPriceSnapshot, ParsedMarket, PaperTrade, Prediction, WeatherForecastSnapshot, utc_now
+from app.db.models import (
+    EVRecommendation,
+    Market,
+    MarketPriceSnapshot,
+    PaperRunnerRun,
+    ParsedMarket,
+    PaperTrade,
+    Prediction,
+    WeatherForecastSnapshot,
+    utc_now,
+)
 from app.db.repositories import latest_parsed_market, latest_price_snapshot
 from app.markets.market_discovery import DiscoveredMarket, DiscoveredPriceSnapshot, MarketDiscoveryService, MarketSourceRefreshService, build_source_diagnostics, normalize_price_snapshot
 from app.markets.market_parser import parse_precipitation_market
@@ -57,6 +67,78 @@ class PaperMarketRunnerReport:
     paper_trades_created: int = 0
     skipped: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+
+
+def paper_runner_config_to_json(config: PaperMarketRunnerConfig) -> dict[str, Any]:
+    return asdict(config)
+
+
+def paper_runner_report_to_json(report: PaperMarketRunnerReport) -> dict[str, Any]:
+    return asdict(report)
+
+
+def create_paper_runner_run(db: Session, config: PaperMarketRunnerConfig) -> PaperRunnerRun:
+    run = PaperRunnerRun(
+        status="running",
+        source=config.source,
+        started_at=utc_now(),
+        config_json=paper_runner_config_to_json(config),
+        skipped_json={},
+        errors_json=[],
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def complete_paper_runner_run(db: Session, run: PaperRunnerRun, report: PaperMarketRunnerReport) -> PaperRunnerRun:
+    report_json = paper_runner_report_to_json(report)
+    run.status = "completed"
+    run.completed_at = utc_now()
+    run.discovered = report.discovered
+    run.created = report.created
+    run.updated = report.updated
+    run.price_snapshots_created = report.price_snapshots_created
+    run.processed = report.processed
+    run.parsed = report.parsed
+    run.forecasts_created = report.forecasts_created
+    run.predictions_created = report.predictions_created
+    run.recommendations_created = report.recommendations_created
+    run.paper_trades_created = report.paper_trades_created
+    run.skipped_json = report.skipped
+    run.errors_json = report.errors
+    run.report_json = report_json
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def fail_paper_runner_run(db: Session, run: PaperRunnerRun, exc: Exception) -> PaperRunnerRun:
+    message = str(exc) or exc.__class__.__name__
+    run.status = "failed"
+    run.completed_at = utc_now()
+    run.errors_json = [message]
+    run.report_json = {"errors": [message]}
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+async def run_paper_market_once_recorded(
+    db: Session,
+    config: PaperMarketRunnerConfig | None = None,
+    runner: "PaperMarketRunner | None" = None,
+) -> PaperRunnerRun:
+    effective_config = config or PaperMarketRunnerConfig()
+    run = create_paper_runner_run(db, effective_config)
+    try:
+        report = await (runner or PaperMarketRunner(db=db, config=effective_config)).run_once()
+    except Exception as exc:
+        db.rollback()
+        fail_paper_runner_run(db, run, exc)
+        raise
+    return complete_paper_runner_run(db, run, report)
 
 
 class PaperMarketRunner:
@@ -201,12 +283,19 @@ class PaperMarketRunner:
                 condition_id=market.condition_id,
             )
         except PublicMarketDataError as exc:
+            fallback_snapshot = latest_price_snapshot(self.db, market.id)
             market.source_diagnostics = {
                 "source": market.source,
                 "price_status": "unsupported",
                 "unsupported_reasons": ["source_refresh_failed"],
                 "public_source_error": exc.to_diagnostics(),
             }
+            if fallback_snapshot is not None and fallback_snapshot.yes_price is not None and fallback_snapshot.no_price is not None:
+                market.source_diagnostics["price_status"] = "stale_supported"
+                market.source_diagnostics["fallback_price_snapshot_id"] = fallback_snapshot.id
+                market.source_diagnostics["fallback_price_snapshot_used"] = True
+                self._skip("price_refresh_failed_used_stored_snapshot")
+                return
             self._skip("price_refresh_failed")
             return
 
