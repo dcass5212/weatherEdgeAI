@@ -51,23 +51,37 @@ def test_parse_or_more_wording() -> None:
 
 
 def test_parse_less_than_wording() -> None:
-    result = parse_precipitation_market("Will NYC have less than 2 inches of precipitation in May?")
+    result = parse_precipitation_market(
+        "Will NYC have less than 2 inches of precipitation in May?",
+        reference_datetime=datetime(2026, 5, 10, 12, tzinfo=timezone.utc),
+    )
 
     assert result.success is True
     assert result.location_name == "NYC"
     assert result.operator == "<"
     assert result.threshold_value == 2
     assert result.threshold_unit == "inches"
+    assert result.target_start is not None
+    assert result.target_end is not None
+    assert result.target_start.date().isoformat() == "2026-05-01"
+    assert result.target_end.date().isoformat() == "2026-05-31"
 
 
 def test_parse_millimeter_or_more_wording() -> None:
-    result = parse_precipitation_market("Will Hong Kong have 240mm or more of precipitation in May?")
+    result = parse_precipitation_market(
+        "Will Hong Kong have 240mm or more of precipitation in May?",
+        reference_datetime=datetime(2026, 5, 10, 12, tzinfo=timezone.utc),
+    )
 
     assert result.success is True
     assert result.location_name == "Hong Kong"
     assert result.operator == ">="
     assert result.threshold_value == 240
     assert result.threshold_unit == "mm"
+    assert result.target_start is not None
+    assert result.target_end is not None
+    assert result.target_start.date().isoformat() == "2026-05-01"
+    assert result.target_end.date().isoformat() == "2026-05-31"
 
 
 def test_parse_there_be_rain_in_location_wording() -> None:
@@ -123,3 +137,24 @@ def test_precipitation_question_without_supported_unit_returns_clear_failure() -
 
     assert result.success is False
     assert result.error == "Unsupported precipitation question: threshold unit must be inches or millimeters."
+
+
+def test_interval_precipitation_contract_returns_modeling_gap_failure() -> None:
+    result = parse_precipitation_market("Will Hong Kong have between 190-200mm of precipitation in May?")
+
+    assert result.success is False
+    assert result.error == "Unsupported precipitation interval contract: interval thresholds require interval probability modeling."
+
+
+def test_interval_precipitation_contract_parses_when_enabled() -> None:
+    result = parse_precipitation_market(
+        "Will Hong Kong have between 190-200mm of precipitation in May?",
+        allow_interval_contracts=True,
+    )
+
+    assert result.success is True
+    assert result.location_name == "Hong Kong"
+    assert result.operator == "between"
+    assert result.threshold_value == 190
+    assert result.interval_upper_value == 200
+    assert result.threshold_unit == "mm"

@@ -15,6 +15,7 @@ class ParsedMarketResult(BaseModel):
     metric: str | None = None
     operator: str | None = None
     threshold_value: float | None = None
+    interval_upper_value: float | None = None
     threshold_unit: str | None = None
     target_start: datetime | None = None
     target_end: datetime | None = None

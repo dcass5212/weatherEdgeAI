@@ -20,8 +20,10 @@ Initial examples:
 - Will Chicago receive at least 0.5 inches of rain tomorrow?
 - Will NYC have less than 2 inches of precipitation in May?
 - Will Hong Kong have 240mm or more of precipitation in May?
+- Will Hong Kong have between 190-200mm of precipitation in May?
 
-The current parser and baseline model support one-sided precipitation thresholds: `>`, `>=`, `<`, and `<=`, with inch and millimeter thresholds. Interval contracts such as `between 2 and 3 inches` remain out of scope until an interval probability model is added.
+The current parser and baseline model support one-sided precipitation thresholds: `>`, `>=`, `<`, and `<=`, with inch and millimeter thresholds. Interval contracts such as `between 2 and 3 inches` are available only behind an explicit experimental toggle for paper-runner research; they should not be treated as a proven model improvement.
+The parser extracts target windows for daily wording such as `tomorrow` and `on May 5`, plus month windows such as `in May`, because observed-outcome resolution and trade settlement require a completed target window.
 
 ## Current Baseline
 
@@ -44,6 +46,7 @@ Current behavior:
 - If forecast precipitation is missing, return `p_yes = 0.5` with low confidence.
 - If the forecast is meaningfully on the YES side of the threshold, increase YES probability.
 - If the forecast is meaningfully on the NO side of the threshold, decrease YES probability.
+- If an enabled interval contract's forecast total falls inside the interval, return a modest YES probability with low confidence; outside the interval, reduce YES probability based on distance from the range.
 - Keep probabilities bounded between 0 and 1.
 
 Current probability bands:
@@ -53,6 +56,9 @@ Current probability bands:
 - Forecast within 0.1 units of the threshold: `p_yes = 0.50`.
 - Forecast 0.1 to 0.5 units on the NO side of the threshold: `p_yes = 0.40`.
 - Forecast more than 0.5 units on the NO side of the threshold: `p_yes = 0.25`.
+- Enabled interval contract, forecast inside the range: `p_yes = 0.65`.
+- Enabled interval contract, forecast outside but near the range: `p_yes = 0.35`.
+- Enabled interval contract, forecast far outside the range: `p_yes = 0.20`.
 
 Purpose:
 
@@ -193,6 +199,18 @@ Interpretation:
 - A bucket with average prediction 0.70 should resolve YES about 70% of the time over enough examples.
 - Small sample sizes should be called out directly.
 
+## Algorithm Refinement Loop
+
+Use paper trading as a data-collection and validation system, not as proof of live-trading readiness by itself.
+
+1. Collect broad signals through rehearsals and dry runs before increasing simulated exposure. Candidate predictions and EV recommendations are useful even when no paper trade is opened.
+2. Increase paper-trade limits gradually and document the caps used for each run. Paper PnL is only interpretable when exposure, liquidity, spread, duplicate-trade, and location limits are known.
+3. Train or tune future models on all evaluated recommendations and resolved outcomes, including skipped candidates. Opened paper trades alone are a biased sample because they already passed the current trade-selection rules.
+4. Keep research datasets separate from paper portfolio results. Research datasets answer which features predict outcomes; paper portfolio results answer whether a constrained strategy would have behaved reasonably.
+5. Promote a model or selection rule only after scheduled outcome resolution shows improvement against the baseline on calibration, Brier score, log loss, market-implied comparisons, coverage, and unresolved-trade diagnostics.
+
+This loop is required before treating any upgraded model as a candidate for eventual live trading. Live execution still requires separate safety controls, audit logs, risk limits, and tests proving paper mode cannot place live orders.
+
 ## Backtesting Requirements
 
 See `BACKTESTING_SPEC.md` for the implementation-level replay and reporting specification.
@@ -220,6 +238,7 @@ Backtest reports should include:
 - Paper ROI.
 - Max drawdown.
 - Paper PnL.
+- Paper settlement cost assumptions, including fee and slippage rates. Implemented as `paper_fee_rate` and `paper_slippage_rate` request fields with zero-cost defaults, and reported as gross PnL, fee cost, slippage cost, net PnL, ROI, and a settlement note.
 - Notes on sample-size limitations. Initial backtest responses include this as `sample_size_note`.
 
 ## Modeling Guardrails

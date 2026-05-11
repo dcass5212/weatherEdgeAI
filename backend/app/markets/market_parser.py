@@ -6,6 +6,7 @@ outputs drive forecast requests, probability modeling, and paper-trading EV.
 """
 
 import re
+from calendar import monthrange
 from datetime import datetime, time, timedelta, timezone
 
 from app.markets.schemas import ParsedMarketResult
@@ -14,8 +15,10 @@ from app.markets.schemas import ParsedMarketResult
 PARSER_VERSION = "regex_precip_v1"
 
 THRESHOLD_PATTERN = r"(?P<threshold>\d+(?:\.\d+)?)"
+UPPER_THRESHOLD_PATTERN = r"(?P<upper_threshold>\d+(?:\.\d+)?)"
 UNIT_PATTERN = r"(?P<unit>inch|inches|in|mm|millimeter|millimeters)"
 THRESHOLD_UNIT_PATTERN = rf"{THRESHOLD_PATTERN}\s*{UNIT_PATTERN}"
+INTERVAL_THRESHOLD_UNIT_PATTERN = rf"{THRESHOLD_PATTERN}\s*(?:-|to|and)\s*{UPPER_THRESHOLD_PATTERN}\s*{UNIT_PATTERN}"
 PRECIP_WORD_PATTERN = r"(?:rain|precipitation|precip)"
 DATE_PATTERN = r"(?:\s+(?:on\s+)?(?P<date>.+?))?"
 LOCATION_DATE_PATTERN = r"(?:\s+on\s+(?P<date>.+?))?"
@@ -62,6 +65,19 @@ PRECIPITATION_PATTERNS: list[tuple[re.Pattern[str], str | None]] = [
     ),
 ]
 
+INTERVAL_PRECIPITATION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        rf"^Will (?P<location>.+?) (?:get|receive|see|record|have) between "
+        rf"{INTERVAL_THRESHOLD_UNIT_PATTERN} of {PRECIP_WORD_PATTERN}{DATE_PATTERN}\??$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^Will there be between {INTERVAL_THRESHOLD_UNIT_PATTERN} of {PRECIP_WORD_PATTERN} "
+        rf"in (?P<location>.+?){LOCATION_DATE_PATTERN}\??$",
+        re.IGNORECASE,
+    ),
+]
+
 
 def _parse_target_window(
     date_text: str | None,
@@ -71,23 +87,39 @@ def _parse_target_window(
         return None, None
 
     normalized = date_text.strip().rstrip("?").lower()
+    if normalized.startswith("in "):
+        normalized = normalized[3:].strip()
     now = reference_datetime or datetime.now(timezone.utc)
     if normalized == "tomorrow":
         target_date = (now + timedelta(days=1)).date()
-    else:
-        parsed = None
-        for date_format in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y", "%B %d", "%b %d"):
-            try:
-                parsed = datetime.strptime(normalized.title(), date_format)
-                break
-            except ValueError:
-                continue
-        if parsed is None:
-            return None, None
-        has_explicit_year = parsed.year != 1900
-        target_date = parsed.date() if has_explicit_year else parsed.replace(year=now.year).date()
-        if not has_explicit_year and target_date < now.date():
-            target_date = target_date.replace(year=now.year + 1)
+        start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
+        end = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
+        return start, end
+
+    for month_format in ("%B", "%b"):
+        try:
+            parsed_month = datetime.strptime(normalized.title(), month_format)
+        except ValueError:
+            continue
+        year = now.year + 1 if parsed_month.month < now.month else now.year
+        start = datetime(year, parsed_month.month, 1, tzinfo=timezone.utc)
+        end_day = monthrange(year, parsed_month.month)[1]
+        end = datetime.combine(start.date().replace(day=end_day), time.max, tzinfo=timezone.utc)
+        return start, end
+
+    parsed = None
+    for date_format in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y", "%B %d", "%b %d"):
+        try:
+            parsed = datetime.strptime(normalized.title(), date_format)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return None, None
+    has_explicit_year = parsed.year != 1900
+    target_date = parsed.date() if has_explicit_year else parsed.replace(year=now.year).date()
+    if not has_explicit_year and target_date < now.date():
+        target_date = target_date.replace(year=now.year + 1)
 
     start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
     end = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
@@ -110,6 +142,11 @@ def _unsupported_reason(question: str) -> str:
         return "Unsupported precipitation question: missing numeric threshold."
     if not re.search(r"\b(inch|inches|in|mm|millimeter|millimeters)\b", lowered):
         return "Unsupported precipitation question: threshold unit must be inches or millimeters."
+    if re.search(
+        rf"\bbetween\s+\d+(?:\.\d+)?\s*(?:-|to|and)\s*\d+(?:\.\d+)?\s*{UNIT_PATTERN}\b",
+        lowered,
+    ):
+        return "Unsupported precipitation interval contract: interval thresholds require interval probability modeling."
     return (
         "Unsupported precipitation question wording. Supported examples include "
         "'more than 1 inch of rain', 'at least 0.5 inches of rain', and '1 inch or more of rain'."
@@ -119,9 +156,36 @@ def _unsupported_reason(question: str) -> str:
 def parse_precipitation_market(
     question: str,
     reference_datetime: datetime | None = None,
+    allow_interval_contracts: bool = False,
 ) -> ParsedMarketResult:
     """Parse simple precipitation threshold market questions using regex."""
     normalized_question = question.strip()
+
+    if allow_interval_contracts:
+        for pattern in INTERVAL_PRECIPITATION_PATTERNS:
+            match = pattern.search(normalized_question)
+            if not match:
+                continue
+
+            lower_threshold = float(match.group("threshold"))
+            upper_threshold = float(match.group("upper_threshold"))
+            if upper_threshold <= lower_threshold:
+                break
+            location_name = match.group("location").strip()
+            target_start, target_end = _parse_target_window(match.groupdict().get("date"), reference_datetime)
+            return ParsedMarketResult(
+                success=True,
+                location_name=location_name,
+                metric="precipitation",
+                operator="between",
+                threshold_value=lower_threshold,
+                interval_upper_value=upper_threshold,
+                threshold_unit=match.group("unit").lower(),
+                target_start=target_start,
+                target_end=target_end,
+                parser_version=PARSER_VERSION,
+                parse_confidence=0.75,
+            )
 
     for pattern, fallback_operator in PRECIPITATION_PATTERNS:
         match = pattern.search(normalized_question)

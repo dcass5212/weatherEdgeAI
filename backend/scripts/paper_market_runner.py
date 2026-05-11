@@ -39,6 +39,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-liquidity", type=float, default=0.0, help="Skip markets below this liquidity when present.")
     parser.add_argument("--max-spread", type=float, default=0.15, help="Skip markets above this spread when present.")
     parser.add_argument(
+        "--max-open-trades",
+        type=int,
+        default=None,
+        help="Skip new paper trades when this many simulated positions are already open. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--max-total-exposure",
+        type=float,
+        default=None,
+        help="Skip new paper trades when total open simulated cost would exceed this amount. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--max-market-exposure",
+        type=float,
+        default=None,
+        help="Skip new paper trades when simulated cost in one market would exceed this amount. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--max-location-exposure",
+        type=float,
+        default=None,
+        help="Skip new paper trades when simulated cost in one parsed location would exceed this amount. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--entry-slippage-rate",
+        type=float,
+        default=None,
+        help="Add this probability-point slippage to simulated paper entry fills. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--allow-stale-price-fallback",
+        action="store_true",
+        help="Allow a stored binary snapshot to be used after a public refresh failure.",
+    )
+    parser.add_argument(
+        "--require-fresh-prices",
+        action="store_true",
+        help="Fail closed on refresh failures even when a stored binary snapshot exists.",
+    )
+    parser.add_argument(
+        "--max-price-age-minutes",
+        type=float,
+        default=None,
+        help="Skip markets whose latest price snapshot is older than this many minutes. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
+        "--max-forecast-age-hours",
+        type=float,
+        default=None,
+        help="Skip predictions when the created forecast snapshot timestamp is older than this many hours. Uses the environment default when omitted.",
+    )
+    parser.add_argument(
         "--no-refresh-prices",
         action="store_true",
         help="Use stored discovery prices only instead of refreshing public prices before evaluation.",
@@ -49,6 +101,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run discovery, forecasts, predictions, and EV evaluation but do not create paper trades.",
     )
     parser.add_argument(
+        "--rehearsal",
+        action="store_true",
+        help="Alias for --dry-run that emphasizes preflight expected-trade reporting.",
+    )
+    interval_group = parser.add_mutually_exclusive_group()
+    interval_group.add_argument(
+        "--allow-interval-contracts",
+        dest="allow_interval_contracts",
+        action="store_true",
+        help="Opt in to parsing and modeling between X-Y precipitation contracts.",
+    )
+    interval_group.add_argument(
+        "--disable-interval-contracts",
+        dest="allow_interval_contracts",
+        action="store_false",
+        help="Opt out of interval precipitation contracts even if the environment default is enabled.",
+    )
+    parser.set_defaults(allow_interval_contracts=None)
+    parser.add_argument(
         "--interval-minutes",
         type=float,
         default=None,
@@ -57,6 +128,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-hours", type=float, default=None, help="Stop loop mode after this many hours.")
     parser.add_argument("--max-runs", type=int, default=None, help="Stop loop mode after this many passes.")
     args = parser.parse_args(argv)
+    if args.rehearsal:
+        args.dry_run = True
     _validate_args(args)
     return args
 
@@ -74,6 +147,22 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--min-liquidity cannot be negative")
     if args.max_spread < 0:
         raise SystemExit("--max-spread cannot be negative")
+    if args.max_open_trades is not None and args.max_open_trades < 0:
+        raise SystemExit("--max-open-trades cannot be negative")
+    if args.max_total_exposure is not None and args.max_total_exposure < 0:
+        raise SystemExit("--max-total-exposure cannot be negative")
+    if args.max_market_exposure is not None and args.max_market_exposure < 0:
+        raise SystemExit("--max-market-exposure cannot be negative")
+    if args.max_location_exposure is not None and args.max_location_exposure < 0:
+        raise SystemExit("--max-location-exposure cannot be negative")
+    if args.entry_slippage_rate is not None and not 0 <= args.entry_slippage_rate <= 1:
+        raise SystemExit("--entry-slippage-rate must be between 0 and 1")
+    if args.allow_stale_price_fallback and args.require_fresh_prices:
+        raise SystemExit("--allow-stale-price-fallback cannot be combined with --require-fresh-prices")
+    if args.max_price_age_minutes is not None and args.max_price_age_minutes < 0:
+        raise SystemExit("--max-price-age-minutes cannot be negative")
+    if args.max_forecast_age_hours is not None and args.max_forecast_age_hours < 0:
+        raise SystemExit("--max-forecast-age-hours cannot be negative")
     if args.interval_minutes is None:
         return
     if args.interval_minutes <= 0:
@@ -98,6 +187,53 @@ def _config_from_args(args: argparse.Namespace) -> PaperMarketRunnerConfig:
         max_spread=args.max_spread,
         refresh_prices=not args.no_refresh_prices,
         create_trades=not args.dry_run,
+        allow_interval_contracts=(
+            args.allow_interval_contracts
+            if args.allow_interval_contracts is not None
+            else PaperMarketRunnerConfig().allow_interval_contracts
+        ),
+        max_price_age_minutes=(
+            args.max_price_age_minutes
+            if args.max_price_age_minutes is not None
+            else PaperMarketRunnerConfig().max_price_age_minutes
+        ),
+        max_forecast_age_hours=(
+            args.max_forecast_age_hours
+            if args.max_forecast_age_hours is not None
+            else PaperMarketRunnerConfig().max_forecast_age_hours
+        ),
+        max_open_trades=(
+            args.max_open_trades if args.max_open_trades is not None else PaperMarketRunnerConfig().max_open_trades
+        ),
+        max_total_exposure=(
+            args.max_total_exposure
+            if args.max_total_exposure is not None
+            else PaperMarketRunnerConfig().max_total_exposure
+        ),
+        max_market_exposure=(
+            args.max_market_exposure
+            if args.max_market_exposure is not None
+            else PaperMarketRunnerConfig().max_market_exposure
+        ),
+        max_location_exposure=(
+            args.max_location_exposure
+            if args.max_location_exposure is not None
+            else PaperMarketRunnerConfig().max_location_exposure
+        ),
+        entry_slippage_rate=(
+            args.entry_slippage_rate
+            if args.entry_slippage_rate is not None
+            else PaperMarketRunnerConfig().entry_slippage_rate
+        ),
+        allow_stale_price_fallback=(
+            False
+            if args.require_fresh_prices
+            else (
+                True
+                if args.allow_stale_price_fallback
+                else PaperMarketRunnerConfig().allow_stale_price_fallback
+            )
+        ),
     )
 
 
@@ -111,7 +247,9 @@ def _print_report(report: PaperMarketRunnerReport) -> None:
         "workflow: "
         f"processed={report.processed}, parsed={report.parsed}, forecasts_created={report.forecasts_created}, "
         f"predictions_created={report.predictions_created}, recommendations_created={report.recommendations_created}, "
-        f"paper_trades_created={report.paper_trades_created}"
+        f"actionable_recommendations={report.actionable_recommendations}, "
+        f"expected_paper_trades={report.expected_paper_trades}, paper_trades_created={report.paper_trades_created}, "
+        f"stale_price_fallbacks_used={report.stale_price_fallbacks_used}"
     )
     if report.skipped:
         skipped = ", ".join(f"{reason}={count}" for reason, count in sorted(report.skipped.items()))
@@ -139,7 +277,10 @@ async def _run_once(args: argparse.Namespace) -> PaperMarketRunnerReport:
             forecasts_created=run.forecasts_created,
             predictions_created=run.predictions_created,
             recommendations_created=run.recommendations_created,
+            actionable_recommendations=int(run.report_json.get("actionable_recommendations", 0)),
+            expected_paper_trades=int(run.report_json.get("expected_paper_trades", 0)),
             paper_trades_created=run.paper_trades_created,
+            stale_price_fallbacks_used=int(run.report_json.get("stale_price_fallbacks_used", 0)),
             skipped=run.skipped_json,
             errors=run.errors_json,
         )

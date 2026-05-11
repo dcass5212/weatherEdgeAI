@@ -126,6 +126,32 @@ def test_build_resolved_outcome_supports_less_than_operator() -> None:
     assert outcome.actual_unit == "inch"
 
 
+def test_build_resolved_outcome_supports_between_operator() -> None:
+    parsed_market = ParsedMarket(
+        id=12,
+        market_id=34,
+        location_name="Hong Kong",
+        latitude=22.3193,
+        longitude=114.1694,
+        metric="precipitation",
+        operator="between",
+        threshold_value=190.0,
+        threshold_unit="mm",
+        parser_version="regex_precip_v1",
+        parse_confidence=0.75,
+        raw_parse_json={"interval_upper_value": 200.0},
+    )
+
+    outcome = build_resolved_outcome_from_observations(
+        parsed_market,
+        {"daily": {"precipitation_sum": [195.0]}, "daily_units": {"precipitation_sum": "mm"}},
+    )
+
+    assert outcome.actual_outcome == "YES"
+    assert outcome.actual_value == 195.0
+    assert outcome.raw_json["threshold"]["interval_upper_value"] == 200.0
+
+
 def test_build_resolved_outcome_rejects_noaa_daily_prcp_without_units() -> None:
     parsed_market = ParsedMarket(
         id=12,
@@ -274,6 +300,60 @@ def test_create_resolved_outcome_route(client: TestClient) -> None:
     assert body["actual_value"] == 1.2
 
 
+def test_create_resolved_outcome_settles_open_paper_trade(client: TestClient, db_session: Session) -> None:
+    market = Market(
+        source="test",
+        source_market_id="settle-route-1",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+    prediction = Prediction(market_id=market.id, model_version="baseline_precip_v1", p_yes=0.7, p_no=0.3)
+    db_session.add(prediction)
+    db_session.flush()
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.4,
+        market_price_no=0.6,
+        edge_yes=0.3,
+        edge_no=-0.3,
+        ev_yes=0.3,
+        ev_no=-0.3,
+        recommendation="PAPER_BUY_YES",
+    )
+    db_session.add(recommendation)
+    db_session.flush()
+    trade = PaperTrade(
+        market_id=market.id,
+        recommendation_id=recommendation.id,
+        side="YES",
+        entry_price=0.4,
+        quantity=10.0,
+        status="OPEN",
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    response = client.post(
+        "/backtests/resolved-outcomes",
+        json={
+            "market_id": market.id,
+            "actual_outcome": "YES",
+            "actual_value": 1.2,
+            "actual_unit": "inch",
+            "resolution_source": "test_fixture",
+            "resolved_at": "2026-05-06T02:00:00Z",
+        },
+    )
+
+    assert response.status_code == 201
+    db_session.refresh(trade)
+    assert trade.status == "RESOLVED"
+    assert trade.exit_price == 1.0
+    assert trade.pnl == 6.0
+
+
 def test_resolve_weather_outcome_route_persists_provider_result(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_resolve_weather_outcome(parsed_market: ParsedMarket, provider: str = "open_meteo_archive") -> ResolvedOutcome:
         return ResolvedOutcome(
@@ -316,6 +396,190 @@ def test_resolve_weather_outcome_route_persists_provider_result(client: TestClie
     list_response = client.get(f"/backtests/resolved-outcomes?market_id={market_id}")
     list_response.raise_for_status()
     assert len(list_response.json()) == 1
+
+
+def test_resolve_weather_outcomes_batch_skips_existing_and_settles(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_resolve_weather_outcome(parsed_market: ParsedMarket, provider: str = "open_meteo_archive") -> ResolvedOutcome:
+        return ResolvedOutcome(
+            market_id=parsed_market.market_id,
+            actual_outcome="NO",
+            actual_value=0.2,
+            actual_unit="inch",
+            resolution_source=provider,
+            resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            raw_json={"source": "test_archive", "parsed_market_id": parsed_market.id},
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes_backtests.resolve_weather_outcome_for_parsed_market",
+        fake_resolve_weather_outcome,
+    )
+    market = Market(
+        source="test",
+        source_market_id="batch-resolve-1",
+        question="Will Chicago receive less than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+    parsed = ParsedMarket(
+        market_id=market.id,
+        location_name="Chicago",
+        latitude=41.8781,
+        longitude=-87.6298,
+        metric="precipitation",
+        operator="<",
+        threshold_value=1.0,
+        threshold_unit="inch",
+        target_start=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        target_end=datetime(2026, 5, 5, tzinfo=timezone.utc),
+        parser_version="regex_precip_v1",
+        parse_confidence=0.8,
+    )
+    db_session.add(parsed)
+    db_session.flush()
+    prediction = Prediction(market_id=market.id, parsed_market_id=parsed.id, model_version="baseline_precip_v1", p_yes=0.65, p_no=0.35)
+    db_session.add(prediction)
+    db_session.flush()
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.5,
+        market_price_no=0.5,
+        recommendation="PAPER_BUY_NO",
+    )
+    db_session.add(recommendation)
+    db_session.flush()
+    trade = PaperTrade(
+        market_id=market.id,
+        recommendation_id=recommendation.id,
+        side="NO",
+        entry_price=0.5,
+        quantity=4.0,
+        status="OPEN",
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    response = client.post("/backtests/resolved-outcomes/resolve-weather-batch", json={"limit": 10})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["resolved"] == 1
+    assert body["settled_trades"] == 1
+    assert body["results"][0]["status"] == "resolved"
+    db_session.refresh(trade)
+    assert trade.status == "RESOLVED"
+    assert trade.exit_price == 1.0
+    assert trade.pnl == 2.0
+
+    second_response = client.post("/backtests/resolved-outcomes/resolve-weather-batch", json={"limit": 10})
+    second_response.raise_for_status()
+    assert second_response.json()["resolved"] == 0
+    assert second_response.json()["skipped"] >= 1
+
+
+def test_outcome_eligibility_preview_reports_resolution_readiness(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    def add_market_with_parse(
+        source_market_id: str,
+        *,
+        latitude: float | None = 40.7128,
+        longitude: float | None = -74.006,
+        target_start: datetime | None = datetime(2026, 5, 5, tzinfo=timezone.utc),
+        target_end: datetime | None = datetime(2026, 5, 5, tzinfo=timezone.utc),
+        location_name: str = "New York City",
+    ) -> tuple[Market, ParsedMarket]:
+        market = Market(
+            source="test",
+            source_market_id=source_market_id,
+            question=f"Will {location_name} get more than 1 inch of rain?",
+            category="weather",
+        )
+        db_session.add(market)
+        db_session.flush()
+        parsed = ParsedMarket(
+            market_id=market.id,
+            location_name=location_name,
+            latitude=latitude,
+            longitude=longitude,
+            metric="precipitation",
+            operator=">",
+            threshold_value=1.0,
+            threshold_unit="inch",
+            target_start=target_start,
+            target_end=target_end,
+            parser_version="regex_precip_v1",
+            parse_confidence=0.8,
+        )
+        db_session.add(parsed)
+        db_session.flush()
+        return market, parsed
+
+    ready_market, _ = add_market_with_parse("preview-ready")
+    future_market, _ = add_market_with_parse(
+        "preview-not-ready",
+        target_start=datetime(2026, 5, 20, tzinfo=timezone.utc),
+        target_end=datetime(2026, 5, 20, tzinfo=timezone.utc),
+    )
+    missing_coordinates_market, _ = add_market_with_parse("preview-missing-coords", latitude=None, longitude=None)
+    missing_target_market, _ = add_market_with_parse("preview-missing-target", target_start=None, target_end=None)
+    resolved_market, _ = add_market_with_parse("preview-resolved")
+    duplicate_market, latest_duplicate_parse = add_market_with_parse("preview-duplicate")
+    db_session.add(
+        ParsedMarket(
+            market_id=duplicate_market.id,
+            location_name="New York City",
+            latitude=40.7128,
+            longitude=-74.006,
+            metric="precipitation",
+            operator=">",
+            threshold_value=1.0,
+            threshold_unit="inch",
+            target_start=datetime(2026, 5, 5, tzinfo=timezone.utc),
+            target_end=datetime(2026, 5, 5, tzinfo=timezone.utc),
+            parser_version="regex_precip_v1",
+            parse_confidence=0.7,
+        )
+    )
+    db_session.add(
+        ResolvedOutcome(
+            market_id=resolved_market.id,
+            actual_outcome="YES",
+            actual_value=1.4,
+            actual_unit="inch",
+            resolution_source="open_meteo_archive",
+            resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/backtests/resolved-outcomes/eligibility-preview?limit=20")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["resolution_provider"] == "open_meteo_archive"
+    assert body["counts"]["ready"] == 2
+    assert body["counts"]["not_ready"] == 1
+    assert body["counts"]["missing_coordinates"] == 1
+    assert body["counts"]["missing_target_window"] == 1
+    assert body["counts"]["already_resolved"] == 1
+    assert body["counts"]["skipped"] == 1
+
+    by_market = {item["market_id"]: item for item in body["results"] if item["status"] != "skipped"}
+    assert by_market[ready_market.id]["status"] == "ready"
+    assert by_market[future_market.id]["reason"] == "target weather window has not completed"
+    assert by_market[missing_coordinates_market.id]["status"] == "missing_coordinates"
+    assert by_market[missing_target_market.id]["status"] == "missing_target_window"
+    assert by_market[resolved_market.id]["latest_outcome_source"] == "open_meteo_archive"
+    skipped = [item for item in body["results"] if item["status"] == "skipped"]
+    assert skipped[0]["market_id"] == duplicate_market.id
+    assert skipped[0]["parsed_market_id"] == latest_duplicate_parse.id
 
 
 def test_resolve_weather_outcome_route_reports_provider_http_failure(
@@ -424,13 +688,26 @@ def test_backtest_runner_replays_persisted_resolved_predictions(db_session: Sess
     assert result.win_rate == 1.0
     assert result.brier_score == 0.0625
     assert result.log_loss is not None
+    assert result.paper_gross_pnl == 5.0
+    assert result.paper_fee_cost == 0.0
+    assert result.paper_slippage_cost == 0.0
     assert result.paper_total_pnl == 5.0
     assert result.paper_roi == 1.0
     assert result.max_drawdown == 0.0
+    assert "0.0000 fee rate" in result.paper_settlement_note
     assert result.sample_size_note == "Very small sample; use metrics only to verify the replay workflow."
     assert result.calibration_buckets[3].count == 1
     assert result.calibration_buckets[3].average_predicted_probability == 0.75
     assert result.calibration_buckets[3].observed_yes_rate == 1.0
+    assert result.sample_size_gate == "insufficient_sample"
+    assert [item.name for item in result.baseline_comparisons] == [
+        "model_probability",
+        "always_50_percent",
+        "market_implied_probability",
+    ]
+    assert result.baseline_comparisons[0].brier_score == result.brier_score
+    assert result.baseline_comparisons[1].brier_score == 0.25
+    assert result.baseline_comparisons[2].prediction_count == 1
 
 
 def test_backtest_runner_reports_coverage_diagnostics(db_session: Session) -> None:
@@ -611,6 +888,80 @@ def test_backtest_runner_uses_one_latest_outcome_per_market(db_session: Session)
     assert result.coverage_diagnostics.resolved_outcome_count_in_window == 2
 
 
+def test_backtest_runner_applies_paper_fee_and_slippage_assumptions(db_session: Session) -> None:
+    market = Market(
+        source="test",
+        source_market_id="paper-costs",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    db_session.add(market)
+    db_session.flush()
+    prediction = Prediction(
+        market_id=market.id,
+        model_version="baseline_precip_v1",
+        p_yes=0.75,
+        p_no=0.25,
+        confidence="medium",
+    )
+    db_session.add(prediction)
+    db_session.flush()
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.5,
+        market_price_no=0.5,
+        edge_yes=0.25,
+        edge_no=-0.25,
+        ev_yes=0.25,
+        ev_no=-0.25,
+        recommendation="PAPER_BUY_YES",
+        paper_position_size=10.0,
+    )
+    db_session.add(recommendation)
+    db_session.flush()
+    db_session.add_all(
+        [
+            PaperTrade(
+                market_id=market.id,
+                recommendation_id=recommendation.id,
+                side="YES",
+                entry_price=0.5,
+                quantity=10.0,
+                entry_time=datetime(2026, 5, 5, 12, tzinfo=timezone.utc),
+                status="OPEN",
+            ),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.1,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = BacktestRunner(db_session).run(
+        BacktestRunRequest(
+            start_date="2026-05-01",
+            end_date="2026-05-10",
+            paper_fee_rate=0.1,
+            paper_slippage_rate=0.02,
+        )
+    )
+
+    assert result.paper_gross_pnl == 5.0
+    assert result.paper_slippage_cost == 0.2
+    assert result.paper_fee_cost == 0.52
+    assert result.paper_total_pnl == 4.28
+    assert result.paper_roi == 0.748252
+    assert "0.1000 fee rate" in result.paper_settlement_note
+    assert "0.0200 entry slippage rate" in result.paper_settlement_note
+
+
 def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     response = client.post(
         "/backtests/run",
@@ -636,6 +987,8 @@ def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     assert body["paper_roi"] == 0.408451
     assert body["max_drawdown"] == 4.5
     assert body["sample_size_note"] == "Very small sample; use metrics only to verify the replay workflow."
+    assert body["sample_size_gate"] == "insufficient_sample"
+    assert body["baseline_comparisons"][0]["name"] == "model_probability"
     assert body["coverage_diagnostics"]["candidate_prediction_count"] == 3
     assert body["coverage_diagnostics"]["evaluated_prediction_count"] == 3
     assert body["coverage_diagnostics"]["missing_outcome_count"] == 0
@@ -649,3 +1002,246 @@ def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     assert body["calibration_buckets"][3]["count"] == 2
     assert body["calibration_buckets"][3]["average_predicted_probability"] == 0.675
     assert body["calibration_buckets"][3]["observed_yes_rate"] == 0.5
+
+
+def test_evidence_report_summarizes_backtest_and_limits(client: TestClient, db_session: Session) -> None:
+    market = Market(
+        source="test",
+        source_market_id="evidence-report-1",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+    prediction = Prediction(market_id=market.id, model_version="baseline_precip_v1", p_yes=0.75, p_no=0.25)
+    db_session.add(prediction)
+    db_session.flush()
+    recommendation = EVRecommendation(
+        prediction_id=prediction.id,
+        market_price_yes=0.5,
+        market_price_no=0.5,
+        recommendation="PAPER_BUY_YES",
+    )
+    db_session.add(recommendation)
+    db_session.flush()
+    db_session.add_all(
+        [
+            PaperTrade(
+                market_id=market.id,
+                recommendation_id=recommendation.id,
+                side="YES",
+                entry_price=0.5,
+                quantity=2.0,
+                status="OPEN",
+            ),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.1,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/evaluation/evidence-report",
+        params={"start_date": "2026-05-01", "end_date": "2026-05-10"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["sample_size_gate"] == "insufficient_sample"
+    assert body["counts"]["predictions"] == 1
+    assert body["counts"]["unresolved_paper_trades"] == 0
+    assert body["paper_trade_lifecycle"]["recommended_buy_signals"] == 1
+    assert body["paper_trade_lifecycle"]["recommended_but_not_traded"] == 0
+    assert body["paper_trade_lifecycle"]["open"] == 1
+    assert body["paper_trade_lifecycle"]["unresolved"] == 0
+    assert body["market_implied_coverage"]["evaluated_prediction_count"] == 1
+    assert body["market_implied_coverage"]["with_market_implied_count"] == 1
+    assert body["market_implied_coverage"]["missing_market_implied_count"] == 0
+    assert body["market_implied_coverage"]["coverage_ratio"] == 1.0
+    assert body["backtest"]["baseline_comparisons"][1]["name"] == "always_50_percent"
+    assert body["interpretation_limits"]
+
+
+def test_evidence_report_includes_paper_trade_lifecycle_counts(client: TestClient, db_session: Session) -> None:
+    markets: list[Market] = []
+    recommendations: list[EVRecommendation] = []
+    for index in range(4):
+        market = Market(
+            source="test",
+            source_market_id=f"lifecycle-{index}",
+            question="Will New York City get more than 1 inch of rain on May 5?",
+            category="weather",
+        )
+        db_session.add(market)
+        db_session.flush()
+        prediction = Prediction(market_id=market.id, model_version="baseline_precip_v1", p_yes=0.7, p_no=0.3)
+        db_session.add(prediction)
+        db_session.flush()
+        recommendation = EVRecommendation(
+            prediction_id=prediction.id,
+            market_price_yes=0.5,
+            market_price_no=0.5,
+            recommendation="PAPER_BUY_YES",
+        )
+        db_session.add(recommendation)
+        db_session.flush()
+        markets.append(market)
+        recommendations.append(recommendation)
+
+    expired_target_snapshot = {
+        "parsed_target": {
+            "target_start": "2026-05-05T00:00:00+00:00",
+            "target_end": "2026-05-05T00:00:00+00:00",
+        }
+    }
+    db_session.add_all(
+        [
+            PaperTrade(
+                market_id=markets[0].id,
+                recommendation_id=recommendations[0].id,
+                side="YES",
+                entry_price=0.5,
+                quantity=2.0,
+                status="OPEN",
+                signal_snapshot_json=expired_target_snapshot,
+            ),
+            PaperTrade(
+                market_id=markets[1].id,
+                recommendation_id=recommendations[1].id,
+                side="YES",
+                entry_price=0.5,
+                quantity=2.0,
+                status="RESOLVED",
+            ),
+            PaperTrade(
+                market_id=markets[2].id,
+                recommendation_id=recommendations[2].id,
+                side="YES",
+                entry_price=0.5,
+                quantity=2.0,
+                status="CLOSED",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/evaluation/evidence-report",
+        params={"start_date": "2026-05-01", "end_date": "2026-05-10"},
+    )
+
+    assert response.status_code == 200
+    lifecycle = response.json()["paper_trade_lifecycle"]
+    assert lifecycle["recommended_buy_signals"] == 4
+    assert lifecycle["recommended_but_not_traded"] == 1
+    assert lifecycle["open"] == 1
+    assert lifecycle["resolved"] == 1
+    assert lifecycle["manually_closed"] == 1
+    assert lifecycle["unresolved"] == 1
+    assert lifecycle["unresolved_past_target_window"] == 1
+
+
+def test_evidence_report_market_implied_coverage_reports_partial_sample(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    markets: list[Market] = []
+    predictions: list[Prediction] = []
+    for index in range(2):
+        market = Market(
+            source="test",
+            source_market_id=f"market-implied-coverage-{index}",
+            question="Will New York City get more than 1 inch of rain on May 5?",
+            category="weather",
+        )
+        db_session.add(market)
+        db_session.flush()
+        prediction = Prediction(market_id=market.id, model_version="baseline_precip_v1", p_yes=0.7, p_no=0.3)
+        db_session.add(prediction)
+        db_session.flush()
+        db_session.add(
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.2,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            )
+        )
+        markets.append(market)
+        predictions.append(prediction)
+
+    db_session.add(
+        EVRecommendation(
+            prediction_id=predictions[0].id,
+            market_price_yes=0.5,
+            market_price_no=0.5,
+            recommendation="PAPER_BUY_YES",
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/evaluation/evidence-report",
+        params={"start_date": "2026-05-01", "end_date": "2026-05-10"},
+    )
+
+    assert response.status_code == 200
+    coverage = response.json()["market_implied_coverage"]
+    assert coverage["evaluated_prediction_count"] == 2
+    assert coverage["with_market_implied_count"] == 1
+    assert coverage["missing_market_implied_count"] == 1
+    assert coverage["coverage_ratio"] == 0.5
+    assert coverage["missing_reason"] == "evaluated predictions lacked linked market YES prices"
+    assert "Market-implied comparison covers only part of the evaluated prediction sample." in response.json()[
+        "interpretation_limits"
+    ]
+
+
+def test_evidence_report_market_implied_coverage_reports_no_coverage(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    market = Market(
+        source="test",
+        source_market_id="market-implied-no-coverage",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Prediction(market_id=market.id, model_version="baseline_precip_v1", p_yes=0.7, p_no=0.3),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.2,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 6, 2, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/evaluation/evidence-report",
+        params={"start_date": "2026-05-01", "end_date": "2026-05-10"},
+    )
+
+    assert response.status_code == 200
+    coverage = response.json()["market_implied_coverage"]
+    assert coverage["evaluated_prediction_count"] == 1
+    assert coverage["with_market_implied_count"] == 0
+    assert coverage["missing_market_implied_count"] == 1
+    assert coverage["coverage_ratio"] == 0.0
+    assert "No market-implied comparison was available" in response.json()["interpretation_limits"][-1]

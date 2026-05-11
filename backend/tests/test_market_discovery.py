@@ -323,6 +323,22 @@ async def test_polymarket_client_fetches_public_search_events() -> None:
 
 
 @pytest.mark.anyio
+async def test_polymarket_client_fetches_clob_market_info_by_condition_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/clob-markets/condition-1"
+        return httpx.Response(200, json={"condition_id": "condition-1", "tokens": []})
+
+    client = PolymarketClient(
+        clob_base_url="https://clob.test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    payload = await client.fetch_clob_market_info("condition-1")
+
+    assert payload == {"condition_id": "condition-1", "tokens": []}
+
+
+@pytest.mark.anyio
 async def test_discovery_uses_public_search_and_skips_closed_child_markets() -> None:
     class FakeClient:
         async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
@@ -530,12 +546,13 @@ async def test_source_refresh_service_fetches_polymarket_price_payload_by_condit
     raw_market = _fixture("clob_token_price_map.json")
 
     class FakeClient:
-        async def fetch_market_prices(self, condition_id: str) -> dict:
+        async def fetch_market(self, market_id: str) -> dict:
+            assert market_id == raw_market["id"]
+            return {"id": raw_market["id"], "question": raw_market["question"]}
+
+        async def fetch_clob_market_info(self, condition_id: str) -> dict:
             assert condition_id == raw_market["conditionId"]
             return raw_market
-
-        async def fetch_market(self, market_id: str) -> dict:
-            raise AssertionError("condition_id price refresh should be preferred when available")
 
     payload = await MarketSourceRefreshService(client=FakeClient()).fetch_price_payload(
         source="polymarket",
@@ -543,4 +560,32 @@ async def test_source_refresh_service_fetches_polymarket_price_payload_by_condit
         condition_id=raw_market["conditionId"],
     )
 
-    assert payload == raw_market
+    assert payload["id"] == raw_market["id"]
+    assert payload["prices"] == raw_market["prices"]
+
+
+@pytest.mark.anyio
+async def test_source_refresh_service_falls_back_to_gamma_when_clob_condition_price_fails() -> None:
+    gamma_payload = _fixture("gamma_market_outcome_prices.json")
+
+    class FakeClient:
+        async def fetch_market(self, market_id: str) -> dict:
+            assert market_id == gamma_payload["id"]
+            return gamma_payload
+
+        async def fetch_clob_market_info(self, condition_id: str) -> dict:
+            raise PublicMarketDataError(
+                endpoint=f"/clob-markets/{condition_id}",
+                reason="http_status_error",
+                attempts=1,
+                status_code=404,
+                retryable=False,
+            )
+
+    payload = await MarketSourceRefreshService(client=FakeClient()).fetch_price_payload(
+        source="polymarket",
+        source_market_id=gamma_payload["id"],
+        condition_id=gamma_payload["conditionId"],
+    )
+
+    assert payload == gamma_payload

@@ -44,6 +44,16 @@ function formatSignedNumber(value: number | null | undefined, digits = 2): strin
   return value > 0 ? `+${value.toFixed(digits)}` : value.toFixed(digits);
 }
 
+function formatCostTotal(
+  feeCost: number | null | undefined,
+  slippageCost: number | null | undefined,
+): string {
+  if (feeCost === null && slippageCost === null) {
+    return "n/a";
+  }
+  return formatNumber((feeCost ?? 0) + (slippageCost ?? 0), 2);
+}
+
 function formatMeasurement(value: number | null | undefined, unit: string | null | undefined): string {
   if (value === null || value === undefined) {
     return "n/a";
@@ -119,7 +129,9 @@ function EvaluationPanel({ evaluation }: { evaluation: EvaluationSummary }) {
     { label: "Brier", value: formatNumber(evaluation.brier_score, 3) },
     { label: "Log Loss", value: formatNumber(evaluation.log_loss, 3) },
     { label: "Paper ROI", value: formatPercent(evaluation.paper_roi) },
-    { label: "Paper PnL", value: formatSignedNumber(evaluation.paper_total_pnl, 2) },
+    { label: "Net Paper PnL", value: formatSignedNumber(evaluation.paper_total_pnl, 2) },
+    { label: "Gross Paper PnL", value: formatSignedNumber(evaluation.paper_gross_pnl, 2) },
+    { label: "Costs", value: formatCostTotal(evaluation.paper_fee_cost, evaluation.paper_slippage_cost) },
     { label: "Max Drawdown", value: formatNumber(evaluation.max_drawdown, 2) },
     { label: "Outcomes", value: evaluation.num_resolved_outcomes.toString() },
   ];
@@ -154,6 +166,7 @@ function EvaluationPanel({ evaluation }: { evaluation: EvaluationSummary }) {
             </div>
           ))}
         </div>
+        {evaluation.paper_settlement_note ? <p className="note">{evaluation.paper_settlement_note}</p> : null}
         {evaluation.sample_size_note ? <p className="note">{evaluation.sample_size_note}</p> : null}
       </div>
     </section>
@@ -550,8 +563,12 @@ export function App() {
             brier_score: null,
             log_loss: null,
             paper_roi: null,
+            paper_gross_pnl: null,
+            paper_fee_cost: null,
+            paper_slippage_cost: null,
             paper_total_pnl: null,
             max_drawdown: null,
+            paper_settlement_note: null,
             sample_size_note: null,
             calibration_buckets: [],
           },

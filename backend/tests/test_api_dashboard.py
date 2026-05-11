@@ -291,3 +291,40 @@ def test_dashboard_summary_labels_stale_supported_source_errors_as_stored_price(
     assert summary["price_status"] == "stale_supported"
     assert summary["has_public_source_error"] is True
     assert summary["source_error_label"] == "using stored price"
+
+
+def test_dashboard_summary_labels_fresh_required_source_errors_as_fresh_price_required(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    market = Market(
+        source="polymarket",
+        source_market_id="dashboard-fresh-required-market",
+        condition_id="dashboard-fresh-required-condition",
+        question="Will New York City get more than 1 inch of rain tomorrow?",
+        category="weather",
+        active=True,
+        closed=False,
+        source_diagnostics={
+            "price_status": "fresh_price_required",
+            "unsupported_reasons": ["source_refresh_failed", "stale_price_fallback_requires_opt_in"],
+            "fallback_price_snapshot_used": False,
+            "public_source_error": {
+                "endpoint": "/prices/dashboard-fresh-required-condition",
+                "reason": "http_status_error",
+                "attempts": 3,
+                "status_code": 404,
+                "retryable": False,
+            },
+        },
+    )
+    db_session.add(market)
+    db_session.commit()
+
+    response = client.get("/dashboard/summary")
+
+    assert response.status_code == 200
+    summary = response.json()["recent_markets"][0]
+    assert summary["price_status"] == "fresh_price_required"
+    assert summary["has_public_source_error"] is True
+    assert summary["source_error_label"] == "fresh price required"

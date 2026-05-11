@@ -343,12 +343,16 @@ async def refresh_market_price_snapshot(market_id: int, db: Session = Depends(ge
 
 
 @router.post("/{market_id}/parse", response_model=ParsedMarketRead)
-async def parse_market(market_id: int, db: Session = Depends(get_db)) -> ParsedMarket:
+async def parse_market(
+    market_id: int,
+    allow_interval_contracts: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> ParsedMarket:
     market = get_market(db, market_id)
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
 
-    result = parse_precipitation_market(market.question)
+    result = parse_precipitation_market(market.question, allow_interval_contracts=allow_interval_contracts)
     if not result.success:
         raise HTTPException(status_code=422, detail=result.error)
     if result.threshold_value is None or result.threshold_value <= 0:

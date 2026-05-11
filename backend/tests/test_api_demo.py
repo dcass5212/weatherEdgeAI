@@ -33,7 +33,13 @@ def test_paper_demo_workflow_creates_full_paper_chain(client: TestClient, db_ses
     assert db_session.get(WeatherForecastSnapshot, body["forecast_snapshot_id"]) is not None
     assert db_session.get(Prediction, body["prediction_id"]) is not None
     assert db_session.get(EVRecommendation, body["recommendation_id"]) is not None
-    assert db_session.get(PaperTrade, body["paper_trade_id"]) is not None
+    trade = db_session.get(PaperTrade, body["paper_trade_id"])
+    assert trade is not None
+    assert trade.signal_snapshot_json["parsed_target"]["location_name"] == "New York City"
+    assert trade.signal_snapshot_json["forecast"]["forecast_precip_total"] == 1.6
+    assert trade.signal_snapshot_json["prediction"]["p_yes"] == 0.75
+    assert trade.signal_snapshot_json["market_price"]["yes_price"] == 0.44
+    assert trade.signal_snapshot_json["market_price"]["edge_yes"] == 0.31
 
     dashboard_response = client.get("/dashboard/summary")
     dashboard_response.raise_for_status()

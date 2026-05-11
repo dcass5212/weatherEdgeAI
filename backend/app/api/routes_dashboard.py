@@ -70,8 +70,12 @@ class DashboardEvaluationSummary(BaseModel):
     brier_score: float | None = None
     log_loss: float | None = None
     paper_roi: float | None = None
+    paper_gross_pnl: float | None = None
+    paper_fee_cost: float | None = None
+    paper_slippage_cost: float | None = None
     paper_total_pnl: float | None = None
     max_drawdown: float | None = None
+    paper_settlement_note: str | None = None
     sample_size_note: str | None = None
     calibration_buckets: list[CalibrationBucket]
 
@@ -146,6 +150,11 @@ def _parsed_target_label(parsed_market: object | None) -> str | None:
     threshold_unit = getattr(parsed_market, "threshold_unit", None)
     if not all([location_name, metric, operator, threshold_value, threshold_unit]):
         return None
+    if operator == "between":
+        raw_parse_json = getattr(parsed_market, "raw_parse_json", None)
+        interval_upper_value = raw_parse_json.get("interval_upper_value") if isinstance(raw_parse_json, dict) else None
+        if isinstance(interval_upper_value, int | float):
+            return f"{location_name} {metric} between {threshold_value:g}-{interval_upper_value:g} {threshold_unit}"
     return f"{location_name} {metric} {operator} {threshold_value:g} {threshold_unit}"
 
 
@@ -157,8 +166,10 @@ def _source_diagnostics_summary(market: Market) -> dict:
     source_error_label = None
     if isinstance(public_source_error, dict):
         reason = public_source_error.get("reason")
-        if price_status == "stale_supported":
+        if price_status == "stale_supported" and diagnostics.get("fallback_price_snapshot_used") is True:
             source_error_label = "using stored price"
+        elif price_status == "fresh_price_required":
+            source_error_label = "fresh price required"
         elif isinstance(reason, str):
             source_error_label = reason
         else:
@@ -285,8 +296,12 @@ def _evaluation_summary(db: Session, model_version: str) -> DashboardEvaluationS
         brier_score=result.brier_score,
         log_loss=result.log_loss,
         paper_roi=result.paper_roi,
+        paper_gross_pnl=result.paper_gross_pnl,
+        paper_fee_cost=result.paper_fee_cost,
+        paper_slippage_cost=result.paper_slippage_cost,
         paper_total_pnl=result.paper_total_pnl,
         max_drawdown=result.max_drawdown,
+        paper_settlement_note=result.paper_settlement_note,
         sample_size_note=result.sample_size_note,
         calibration_buckets=result.calibration_buckets,
     )

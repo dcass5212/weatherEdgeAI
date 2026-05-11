@@ -52,7 +52,7 @@ Expected:
 
 ## Frontend Dashboard
 
-The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open paper trades, and recent public paper-runner history from `GET /dashboard/summary`. Recoverable public price-refresh failures that continue from stored discovery-time prices are labeled as `using stored price` instead of a hard source failure. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It also includes a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so public discovery and scoring can be inspected without creating trades. It does not expose live trading.
+The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open paper trades, and recent public paper-runner history from `GET /dashboard/summary`. Recoverable public price-refresh failures are labeled as `using stored price` only when stale fallback is explicitly enabled; otherwise they appear as `fresh price required`. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It also includes a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so public discovery and scoring can be inspected without creating trades. It does not expose live trading.
 
 Start FastAPI first, then run the frontend from a second terminal:
 
@@ -130,8 +130,11 @@ The response should include:
 - `brier_score` and `log_loss`
 - `calibration_buckets`
 - `sample_size_note`
+- `sample_size_gate`
+- `baseline_comparisons`
 - `ev_recommendation_count` and `paper_trade_count`
-- `paper_total_pnl`, `paper_roi`, and `max_drawdown`
+- `paper_gross_pnl`, `paper_fee_cost`, `paper_slippage_cost`, `paper_total_pnl`, `paper_roi`, and `max_drawdown`
+- `paper_settlement_note`, which states the fee and slippage assumptions used for net paper PnL and ROI
 
 Representative seed-fixture values:
 
@@ -141,12 +144,52 @@ Representative seed-fixture values:
   "num_resolved_outcomes": 3,
   "win_rate": 0.666667,
   "brier_score": 0.194167,
+  "paper_gross_pnl": 5.8,
+  "paper_fee_cost": 0.0,
+  "paper_slippage_cost": 0.0,
   "paper_total_pnl": 5.8,
   "paper_roi": 0.408451,
   "max_drawdown": 4.5,
+  "paper_settlement_note": "Paper settlement applies 0.0000 fee rate and 0.0000 entry slippage rate; paper_total_pnl and paper_roi are net of those assumptions.",
+  "sample_size_gate": "insufficient_sample",
   "sample_size_note": "Very small sample; use metrics only to verify the replay workflow."
 }
 ```
+
+## Paper Run Readiness And Evidence
+
+Before starting a longer public paper run, run:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\pre_run_smoke.py
+```
+
+After target windows have completed, resolve eligible observed outcomes and settle matching open paper trades:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/backtests/resolved-outcomes/eligibility-preview?resolution_provider=open_meteo_archive&limit=100"
+```
+
+The preview is read-only. It shows which parsed markets are ready to resolve, not ready because the target window is still open, missing coordinates, missing target dates, already resolved, or skipped as older parsed records.
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/backtests/resolved-outcomes/resolve-weather-batch `
+  -ContentType "application/json" `
+  -Body '{"resolution_provider":"open_meteo_archive","limit":100,"settle_open_trades":true}'
+```
+
+Then inspect the compact evidence report:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/evaluation/evidence-report?start_date=2026-05-01&end_date=2026-05-10&model_version=baseline_precip_v1"
+```
+
+The report is read-only and combines paper-runner history, record counts, backtest metrics, baseline comparisons, sample-size gates, and interpretation limits. See `docs/PAPER_RUN_EVALUATION.md` for the multi-day runbook.
 
 ## Public-Market Paper Runner
 
@@ -161,7 +204,16 @@ For a rehearsal that creates predictions and EV recommendations but no paper tra
 
 ```powershell
 cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal
+```
+
+Rehearsal mode reports `actionable_recommendations` and `expected_paper_trades` after applying duplicate-trade, freshness, max-trade, and paper portfolio limits. It persists a runner record but creates no `paper_trades`.
+
+Interval precipitation contracts such as `between 190-200mm` are off by default. To include them in a manual research rehearsal:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --allow-interval-contracts
 ```
 
 For a bounded overnight run, keep the command explicit:
@@ -171,15 +223,53 @@ cd C:\weatherEdgeAI\backend
 .\.venv\Scripts\python.exe scripts\paper_market_runner.py --interval-minutes 30 --max-hours 10 --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
 ```
 
+The paper runner applies input freshness guards by default:
+
+- `PAPER_RUNNER_MAX_PRICE_AGE_MINUTES=120`
+- `PAPER_RUNNER_MAX_FORECAST_AGE_HOURS=12`
+
+It also skips target windows that have already started or elapsed. Started windows, such as an in-progress monthly rainfall contract, need observed weather so far plus a forecast for the remaining window; the current runner is forecast-only.
+
+Override them only for manual debugging:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-price-age-minutes 240 --max-forecast-age-hours 24
+```
+
+The default paper portfolio limits are deliberately conservative for a small research bankroll:
+
+- `PAPER_RUNNER_MAX_OPEN_TRADES=5`
+- `PAPER_RUNNER_MAX_TOTAL_EXPOSURE=25`
+- `PAPER_RUNNER_MAX_MARKET_EXPOSURE=5`
+- `PAPER_RUNNER_MAX_LOCATION_EXPOSURE=10`
+
+These limits make paper results less naive by preventing a multi-day run from concentrating too many simulated dollars in one market or weather location. They are not live-trading risk controls.
+
+Optional entry slippage defaults to zero:
+
+- `PAPER_RUNNER_ENTRY_SLIPPAGE_RATE=0`
+
+For a conservative manual sensitivity pass, use a small value such as:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --entry-slippage-rate 0.02
+```
+
+When enabled, `entry_price` stores the simulated fill price and `signal_snapshot_json.paper_trade` preserves the quoted entry price, fill price, slippage rate, and slippage cost.
+
 Current behavior:
 
 - Discovers public Polymarket-style weather markets.
 - Runs once by default; loop mode is enabled only with `--interval-minutes` and requires `--max-hours` or `--max-runs`.
 - Refreshes public price snapshots unless `--no-refresh-prices` is set.
 - Skips markets without binary prices, coordinates, eligible liquidity, or eligible spread.
+- Skips stale price snapshots, stale forecast snapshots, and already-elapsed target weather windows.
 - Parses supported precipitation markets and resolves coordinates through the configured geocoding adapter.
+- Prioritizes precipitation threshold candidates ahead of broad weather false positives when selecting stored markets to process.
+- Keeps interval/range precipitation contracts disabled unless `--allow-interval-contracts`, `allow_interval_contracts`, or `PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS=true` is used.
 - Fetches Open-Meteo forecasts, runs the baseline model, evaluates EV, and creates capped simulated paper trades.
 - Skips an actionable side when an open paper trade already exists for that market and side.
+- Skips new paper trades when open-trade, total-exposure, market-exposure, or location-exposure limits would be exceeded.
 - Prints discovery, workflow, skip, and error counts.
 - Persists each pass in `paper_runner_runs` with the config, status, counts, skip reasons, errors, and compact report.
 - Surfaces recent persisted runs in the frontend dashboard, including dry-run status, workflow counts, skip reasons, and errors.

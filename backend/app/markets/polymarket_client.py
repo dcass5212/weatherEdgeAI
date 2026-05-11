@@ -139,9 +139,12 @@ class PolymarketClient:
             return market if isinstance(market, dict) else {}
         raise PublicMarketDataError(endpoint=endpoint, reason="malformed_payload", attempts=1, retryable=False)
 
-    async def fetch_market_prices(self, condition_id: str) -> dict:
-        endpoint = f"/prices/{condition_id}"
+    async def fetch_clob_market_info(self, condition_id: str) -> dict:
+        endpoint = f"/clob-markets/{condition_id}"
         data = await self._get_json(self.clob_base_url, endpoint)
         if isinstance(data, dict):
             return data
         raise PublicMarketDataError(endpoint=endpoint, reason="malformed_payload", attempts=1, retryable=False)
+
+    async def fetch_market_prices(self, condition_id: str) -> dict:
+        return await self.fetch_clob_market_info(condition_id)

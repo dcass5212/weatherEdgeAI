@@ -74,6 +74,31 @@ def test_parse_seeded_market_does_not_create_demo_price_snapshot(client: TestCli
     assert detail_response.json()["latest_price_snapshot"] is None
 
 
+def test_parse_interval_market_requires_explicit_opt_in(client: TestClient) -> None:
+    create_response = client.post(
+        "/markets",
+        json={
+            "source": "mock",
+            "source_market_id": "seeded-interval-market",
+            "question": "Will Hong Kong have between 190-200mm of precipitation in May?",
+            "category": "weather",
+        },
+    )
+    assert create_response.status_code == 201
+    market_id = create_response.json()["id"]
+
+    default_response = client.post(f"/markets/{market_id}/parse")
+    assert default_response.status_code == 422
+    assert "interval probability modeling" in default_response.json()["detail"]
+
+    enabled_response = client.post(f"/markets/{market_id}/parse?allow_interval_contracts=true")
+    assert enabled_response.status_code == 200
+    body = enabled_response.json()
+    assert body["operator"] == "between"
+    assert body["threshold_value"] == 190
+    assert body["raw_parse_json"]["interval_upper_value"] == 200
+
+
 def test_parse_seeded_market_keeps_unknown_location_without_coordinates(client: TestClient) -> None:
     create_response = client.post(
         "/markets",

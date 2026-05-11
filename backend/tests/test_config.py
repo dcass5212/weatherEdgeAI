@@ -9,6 +9,8 @@ def test_default_trading_mode_is_paper() -> None:
 
     assert settings.TRADING_MODE == "paper"
     assert settings.LIVE_TRADING_ENABLED is False
+    assert settings.PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS is False
+    assert settings.PAPER_RUNNER_ALLOW_STALE_PRICE_FALLBACK is False
     assert settings.live_execution_allowed is False
 
 

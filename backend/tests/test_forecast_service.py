@@ -1,8 +1,11 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from app.db.models import ParsedMarket
-from app.weather.forecast_service import build_forecast_snapshot
+from app.weather.forecast_service import build_forecast_snapshot, fetch_forecast_for_parsed_market
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -26,6 +29,18 @@ def _parsed_market(threshold_unit: str = "inch") -> ParsedMarket:
         parse_confidence=0.85,
         parser_version="regex_precip_v1",
     )
+
+
+class RecordingForecastClient:
+    def __init__(self) -> None:
+        self.called = False
+
+    async def fetch_forecast(self, latitude: float, longitude: float, start_date: str, end_date: str) -> dict:
+        self.called = True
+        return {
+            "daily": {"precipitation_sum": [0.0]},
+            "daily_units": {"precipitation_sum": "mm"},
+        }
 
 
 def test_build_forecast_snapshot_converts_open_meteo_mm_to_inches() -> None:
@@ -82,3 +97,16 @@ def test_build_forecast_snapshot_preserves_inch_units() -> None:
 
     assert snapshot.forecast_precip_total == 1.0
     assert snapshot.forecast_precip_unit == "inch"
+
+
+@pytest.mark.anyio
+async def test_fetch_forecast_rejects_started_target_window_before_provider_call() -> None:
+    parsed_market = _parsed_market()
+    parsed_market.target_start = datetime.now(timezone.utc) - timedelta(days=1)
+    parsed_market.target_end = datetime.now(timezone.utc) + timedelta(days=20)
+    client = RecordingForecastClient()
+
+    with pytest.raises(ValueError, match="forecast target window has already started"):
+        await fetch_forecast_for_parsed_market(parsed_market, client=client)
+
+    assert client.called is False

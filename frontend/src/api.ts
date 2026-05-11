@@ -90,8 +90,12 @@ export type EvaluationSummary = {
   brier_score: number | null;
   log_loss: number | null;
   paper_roi: number | null;
+  paper_gross_pnl: number | null;
+  paper_fee_cost: number | null;
+  paper_slippage_cost: number | null;
   paper_total_pnl: number | null;
   max_drawdown: number | null;
+  paper_settlement_note: string | null;
   sample_size_note: string | null;
   calibration_buckets: CalibrationBucket[];
 };

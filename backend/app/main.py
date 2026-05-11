@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_demo import router as demo_router
+from app.api.routes_evaluation import router as evaluation_router
 from app.api.routes_health import router as health_router
 from app.api.routes_backtests import router as backtests_router
 from app.api.routes_markets import router as markets_router
@@ -25,3 +26,4 @@ app.include_router(paper_trades_router)
 app.include_router(backtests_router)
 app.include_router(dashboard_router)
 app.include_router(demo_router)
+app.include_router(evaluation_router)

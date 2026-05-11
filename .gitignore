@@ -44,6 +44,7 @@ frontend/dist/
 *.sqlite3
 *.log
 *.pid
+backend/research_logs/
 
 # OS and editor state
 .DS_Store

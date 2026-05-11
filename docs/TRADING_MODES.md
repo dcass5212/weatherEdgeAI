@@ -20,6 +20,7 @@ Allowed behavior:
 - Exercise execution-like logic through paper adapters.
 - Run guarded one-shot public-market paper passes that create only simulated paper trades within configured caps.
 - Persist public paper-run history for auditability and automated validation.
+- Manually opt in to experimental interval precipitation contracts for paper-runner research while keeping the default off.
 
 Forbidden behavior:
 
@@ -80,6 +81,10 @@ LIVE_TRADING_ENABLED=false
 The application settings expose `live_execution_allowed`, which is true only when `TRADING_MODE=live` and `LIVE_TRADING_ENABLED=true`. There is still no live execution adapter or order-placement endpoint; this is only the first explicit configuration gate for future live work.
 
 Current paper sizing is deliberately simple and research-only. Actionable EV recommendations convert positive probability edge into simulated units by multiplying edge by 100 and capping the result at 10 units. This cap is not a live-trading risk limit; live execution still requires separate safety controls, audit logging, kill-switch behavior, and tested exposure limits.
+
+The public paper runner also applies conservative paper portfolio limits by default: 5 open simulated trades, 25 total simulated exposure, 5 per market, and 10 per parsed location. These limits are designed for research realism and small-bankroll discipline only. They do not replace the separate live-mode risk limits required before real execution.
+
+Paper entry slippage is optional and defaults to zero. When enabled for research, it adjusts simulated paper fill prices while preserving the quoted entry price in the trade's signal snapshot. This is still a paper-only assumption, not a live execution model.
 
 Future live mode must require an explicit setting such as:
 

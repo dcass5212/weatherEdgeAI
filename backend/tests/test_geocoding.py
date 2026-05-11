@@ -19,6 +19,16 @@ def test_fixture_geocoder_resolves_known_city() -> None:
     assert location.source == "fixture"
 
 
+def test_fixture_geocoder_resolves_public_precipitation_demo_cities() -> None:
+    london = resolve_location("London")
+    hong_kong = resolve_location("Hong Kong")
+
+    assert london is not None
+    assert london.latitude == 51.5072
+    assert hong_kong is not None
+    assert hong_kong.longitude == 114.1694
+
+
 def test_fixture_geocoder_returns_none_for_unknown_location() -> None:
     location = FixtureGeocoder().geocode("Springfield")
 

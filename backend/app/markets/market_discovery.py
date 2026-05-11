@@ -10,7 +10,7 @@ from datetime import datetime
 import json
 from typing import Any
 
-from app.markets.polymarket_client import PolymarketClient
+from app.markets.polymarket_client import PolymarketClient, PublicMarketDataError
 
 
 WEATHER_KEYWORDS = ("weather", "rain", "snow", "temperature", "precipitation", "inch")
@@ -741,9 +741,13 @@ class MarketSourceRefreshService:
         if source != "polymarket":
             raise ValueError(f"fresh source refresh is not supported for source {source}")
 
+        gamma_payload = await self.client.fetch_market(source_market_id)
         if condition_id:
-            payload = await self.client.fetch_market_prices(condition_id)
-            if payload:
-                return payload
+            try:
+                clob_payload = await self.client.fetch_clob_market_info(condition_id)
+            except PublicMarketDataError:
+                return gamma_payload
+            if clob_payload:
+                return {**gamma_payload, **clob_payload}
 
-        return await self.client.fetch_market(source_market_id)
+        return gamma_payload

@@ -117,11 +117,12 @@ POST /markets/{market_id}/price-snapshots/refresh
 
 Current behavior:
 
-- Polymarket-sourced markets fetch a fresh public source payload before normalization.
+- Polymarket-sourced markets fetch a fresh Gamma market payload before normalization and may enrich it with public CLOB market information when condition-id metadata is available.
+- Optional CLOB condition-id lookup failures do not block refresh when the fresh Gamma payload is available.
 - Public source requests retry transient failures and rate limits within a small retry budget.
 - Fresh Polymarket price payloads are combined with stored market context when token-only price maps need the market's outcome and token-id metadata.
 - Non-public or manually seeded markets continue to use the stored raw source payload when present.
-- The public paper runner can continue from the latest stored discovery-time price snapshot when a read-only public price refresh fails but a usable binary YES/NO snapshot already exists. The market keeps `source_refresh_failed` diagnostics with `price_status: "stale_supported"` and a `fallback_price_snapshot_id`.
+- The public paper runner requires fresh prices by default. It can continue from the latest stored discovery-time price snapshot only when `allow_stale_price_fallback: true` is passed on the API or `--allow-stale-price-fallback` is set on the CLI. In that opt-in path the market keeps `source_refresh_failed` diagnostics with `price_status: "stale_supported"` and a `fallback_price_snapshot_id`.
 - Normalizes common Polymarket-style fields such as YES/NO outcome prices, token outcome prices, midpoint or last trade price, CLOB orderbook bid/ask levels, CLOB token BUY/SELL price maps, spread, liquidity, and volume.
 - Handles common wrapped public payloads where the market object is nested under `market` or `data`, plus token rows that expose `lastPrice` or `last_price`.
 - Persists a new immutable `market_price_snapshots` record.
@@ -294,9 +295,13 @@ Expected response shape:
     "win_rate": 0.666667,
     "brier_score": 0.194167,
     "log_loss": 0.5716,
+    "paper_gross_pnl": 5.8,
+    "paper_fee_cost": 0.0,
+    "paper_slippage_cost": 0.0,
     "paper_roi": 0.408451,
     "paper_total_pnl": 5.8,
     "max_drawdown": 4.5,
+    "paper_settlement_note": "Paper settlement applies 0.0000 fee rate and 0.0000 entry slippage rate; paper_total_pnl and paper_roi are net of those assumptions.",
     "sample_size_note": "Very small sample; use metrics only to verify the replay workflow.",
     "calibration_buckets": []
   }
@@ -340,12 +345,17 @@ Request:
 POST /markets/{market_id}/parse
 ```
 
+Optional query parameter:
+
+- `allow_interval_contracts`: defaults to `false`; set to `true` to parse `between X-Y` precipitation interval contracts.
+
 Current behavior:
 
 - Parses precipitation threshold questions.
 - Extracts location, metric, operator, threshold, unit, and target window when possible.
 - Supports common V1 precipitation wording such as `more than 1 inch of rain`, `over 1 inch of precipitation`, `at least 0.5 inches of rain`, `0.5 inches or more of rain`, `less than 2 inches of precipitation`, `240mm or more of precipitation`, and `more than 1 inch of rain in New York City`.
-- Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, and Chicago by default.
+- Interval contracts such as `between 190-200mm of precipitation` are supported only when `allow_interval_contracts=true` is passed to the parse endpoint or the paper-runner interval toggle is enabled. They use a simple interval baseline and should be treated as experimental research signals.
+- Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, Chicago, London, and Hong Kong by default.
 - A broader Open-Meteo geocoding provider is available behind the same adapter when `GEOCODING_PROVIDER=open_meteo`.
 - Parsing does not create market price snapshots. Use market discovery or `POST /markets/{market_id}/price-snapshots/refresh` so strategy evaluation can trace prices to a source payload.
 
@@ -370,7 +380,7 @@ Expected response fields:
 Failure cases:
 
 - `404` when the market does not exist.
-- `422` when the question cannot be parsed into a supported precipitation market. Parser failures now distinguish non-precipitation questions, missing numeric thresholds, unsupported units, and unsupported precipitation wording. Interval contracts such as `between 2 and 3 inches` are still intentionally unsupported until the model supports interval probabilities.
+- `422` when the question cannot be parsed into a supported precipitation market. Parser failures now distinguish non-precipitation questions, missing numeric thresholds, unsupported units, interval contracts that need opt-in interval probability modeling, and other unsupported precipitation wording.
 - Parsed markets with unsupported locations can still be stored, but forecast creation will fail until coordinates are available.
 - `502` when an enabled external geocoding provider request fails.
 
@@ -528,6 +538,7 @@ Current behavior:
 - Creates a paper trade only from an existing EV recommendation.
 - Does not place real orders.
 - Remains the default execution mode for local development, tests, demos, and strategy validation.
+- Stores a compact `signal_snapshot_json` on the paper trade so the entry can be explained later from the exact parsed target, forecast, prediction, market price, edge, liquidity, spread, recommendation reason, and runner config available at creation time.
 
 List paper trades:
 
@@ -547,6 +558,8 @@ Content-Type: application/json
 }
 ```
 
+Paper trade reads include `signal_snapshot_json` when available.
+
 ## Workflow 7: Backtest
 
 Run a replay over stored predictions that have resolved outcomes. For a deterministic local demo, set `seed_fixtures` to `true` to insert and replay a small fixture-backed history.
@@ -559,7 +572,9 @@ Content-Type: application/json
   "start_date": "2026-05-01",
   "end_date": "2026-05-10",
   "model_version": "baseline_precip_v1",
-  "seed_fixtures": true
+  "seed_fixtures": true,
+  "paper_fee_rate": 0.0,
+  "paper_slippage_rate": 0.0
 }
 ```
 
@@ -569,7 +584,10 @@ Current behavior:
 - Selects one latest resolved outcome per market in the requested evaluation window before calculating metrics, so corrected or duplicate outcome rows do not multiply predictions.
 - Filters by model version and resolved-at date window.
 - Reports prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, and a sample-size note.
-- Reports EV recommendation count, eligible paper-trade count, settlement PnL, paper ROI, and max drawdown for trades linked to recommendations from the selected model version.
+- Reports a `sample_size_gate` of `insufficient_sample`, `early_signal`, or `reviewable_sample`.
+- Reports baseline comparisons for the model probability, an always-50% control, and market-implied probability when linked market YES prices exist.
+- Reports EV recommendation count, eligible paper-trade count, gross paper PnL, fee and slippage costs, net settlement PnL, paper ROI, and max drawdown for trades linked to recommendations from the selected model version.
+- Paper-trade settlement uses request-level `paper_fee_rate` and `paper_slippage_rate` assumptions. Both default to `0.0`; when set, `paper_total_pnl` and `paper_roi` are net of those costs while `paper_gross_pnl`, `paper_fee_cost`, and `paper_slippage_cost` keep the assumptions inspectable.
 - Reports coverage diagnostics for candidate predictions, evaluated prediction/outcome pairs, missing outcomes, unmatched outcomes, and predictions excluded by model version.
 
 Create a resolved outcome:
@@ -672,6 +690,43 @@ Provider behavior:
 - Both providers compare observed precipitation against the parsed market operator and threshold.
 - NOAA requests fail before provider access when `NOAA_CDO_TOKEN` is not configured.
 
+Resolve all eligible completed parsed precipitation markets in one batch:
+
+```http
+POST /backtests/resolved-outcomes/resolve-weather-batch
+Content-Type: application/json
+
+{
+  "resolution_provider": "open_meteo_archive",
+  "limit": 100,
+  "settle_open_trades": true,
+  "skip_existing_outcomes": true
+}
+```
+
+Current batch behavior:
+
+- Scans parsed markets with coordinates and completed target windows.
+- Skips older parsed records for markets already scanned in the batch.
+- Skips markets that already have a resolved outcome for the selected provider by default.
+- Stores per-market skipped and error results instead of failing the whole batch.
+- Settles open simulated paper trades for each newly resolved market by default.
+
+Resolved outcome creation and observed-weather resolution now settle open paper trades for the same market by default. Settlement is paper-only, marks trades `RESOLVED`, and uses a binary side payout: `1.0` for the winning YES/NO side and `0.0` for the losing side.
+
+Preview outcome-resolution eligibility without calling providers or writing records:
+
+```http
+GET /backtests/resolved-outcomes/eligibility-preview?resolution_provider=open_meteo_archive&limit=100
+```
+
+Current preview behavior:
+
+- Reports parsed markets as `ready`, `not_ready`, `missing_coordinates`, `missing_target_window`, `already_resolved`, or `skipped`.
+- Uses the selected provider when deciding whether a market is already resolved.
+- Skips older parsed records after the latest record for a market has already been previewed.
+- Does not call observed-weather providers, create outcomes, settle trades, or use live execution.
+
 Current NOAA limitation:
 
 - The NOAA client does not yet implement robust station selection. It asks CDO for `PRCP` observations in a small bounding box around the parsed coordinates and normalizes returned daily precipitation records. Future work should add station-choice diagnostics and better handling of multiple nearby stations.
@@ -715,13 +770,46 @@ Expected backtest response fields:
     }
   ],
   "sample_size_note": "Very small sample; use metrics only to verify the replay workflow.",
+  "sample_size_gate": "insufficient_sample",
+  "baseline_comparisons": [
+    {
+      "name": "model_probability",
+      "prediction_count": 3,
+      "brier_score": 0.194167,
+      "log_loss": 0.5716,
+      "win_rate": 0.666667
+    }
+  ],
+  "paper_gross_pnl": 5.8,
+  "paper_fee_cost": 0.0,
+  "paper_slippage_cost": 0.0,
   "paper_total_pnl": 5.8,
   "paper_roi": 0.408451,
   "max_drawdown": 4.5,
+  "paper_settlement_note": "Paper settlement applies 0.0000 fee rate and 0.0000 entry slippage rate; paper_total_pnl and paper_roi are net of those assumptions.",
   "status": "completed",
   "source": "seed_fixture"
 }
 ```
+
+## Workflow 8: Evidence Report
+
+Use the evidence report after a bounded paper run and outcome-resolution batch:
+
+```http
+GET /evaluation/evidence-report?start_date=2026-05-01&end_date=2026-05-10&model_version=baseline_precip_v1
+```
+
+Current behavior:
+
+- Reads persisted records only.
+- Summarizes recent paper-runner counts, skip reasons, and errors.
+- Reports prediction, outcome, open trade, resolved trade, and unresolved trade counts.
+- Reports paper trade lifecycle counts for recommended buy signals, recommended-but-not-traded signals, open trades, resolved trades, manually closed trades, unresolved trades, and unresolved trades past the target weather window.
+- Reports market-implied baseline coverage: evaluated predictions, evaluated predictions with linked market YES prices, missing market-implied comparisons, and coverage ratio.
+- Embeds the same backtest metrics returned by `POST /backtests/run`.
+- Includes baseline comparisons, sample-size gate, sample-size note, and interpretation limits.
+- Does not refresh external data, create trades, or use live execution.
 
 Target behavior:
 
@@ -762,7 +850,7 @@ The runner performs one pass:
 4. Skips ineligible markets using binary-price, liquidity, spread, parse, and coordinate checks.
 5. Fetches forecasts, runs predictions, evaluates EV, and creates simulated paper trades within `--max-trades`.
 
-If public price refresh returns an error for a market that already has a usable stored binary price snapshot from discovery, the runner records `price_refresh_failed_used_stored_snapshot` and continues from that stored snapshot. This keeps public-source instability visible without throwing away inspectable discovery-time price data.
+If public price refresh returns an error for a market that already has a usable stored binary price snapshot from discovery, the runner fails closed by default with `price_refresh_failed_fresh_price_required`. When `--allow-stale-price-fallback` or `allow_stale_price_fallback: true` is explicitly enabled, it records `price_refresh_failed_used_stored_snapshot` and continues from that stored snapshot. This keeps public-source instability visible without silently turning a fresh-price run into a stale replay.
 
 Use `--dry-run` to evaluate without creating paper trades. The script is paper-only and does not call authenticated trading APIs, sign transactions, place orders, or create live execution records.
 
@@ -773,6 +861,14 @@ For bounded overnight paper validation, enable loop mode explicitly:
 ```
 
 Loop mode requires `--max-hours` or `--max-runs` so the command does not run indefinitely by accident.
+
+To include interval/range precipitation contracts in a manual pass, enable the experimental toggle:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --allow-interval-contracts
+```
+
+The same behavior can be enabled for API runs with `allow_interval_contracts: true` or as an environment default with `PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS=true`. Use `--disable-interval-contracts` to opt out in the CLI even when the environment default is enabled.
 
 Each pass persists a `paper_runner_runs` row with the config used, status, start/end timestamps, summary counts, skip reasons, errors, and the compact report payload.
 
@@ -791,9 +887,43 @@ Content-Type: application/json
   "min_liquidity": 100,
   "max_spread": 0.15,
   "refresh_prices": true,
-  "dry_run": false
+  "dry_run": false,
+  "allow_interval_contracts": false,
+  "max_price_age_minutes": 120,
+  "max_forecast_age_hours": 12,
+  "max_open_trades": 5,
+  "max_total_exposure": 25,
+  "max_market_exposure": 5,
+  "max_location_exposure": 10,
+  "entry_slippage_rate": 0.0,
+  "allow_stale_price_fallback": false
 }
 ```
+
+Run a no-trade rehearsal through the same workflow:
+
+```http
+POST /paper-runner/rehearsal
+Content-Type: application/json
+
+{
+  "keywords": ["rain", "weather", "precipitation"],
+  "discovery_limit": 25,
+  "process_limit": 10,
+  "max_trades": 3,
+  "quantity": 1,
+  "min_liquidity": 100,
+  "max_spread": 0.15
+}
+```
+
+Rehearsal behavior:
+
+- Forces no-trade mode even if the request body says otherwise.
+- Discovers, validates, parses, forecasts, predicts, and evaluates EV through the normal runner path.
+- Reports `actionable_recommendations` and `expected_paper_trades`.
+- Applies duplicate-trade, freshness, max-trade, and paper portfolio limits before counting expected paper trades.
+- Persists the run record for inspection, but creates no `paper_trades`.
 
 Read recent persisted runs:
 
@@ -813,7 +943,14 @@ Current behavior:
 
 - Summarizes recent paper-run counts for discovered, processed, parsed, forecasted, predicted, recommended, and simulated paper-traded markets.
 - Groups skip reasons into readable categories such as price data, eligibility filters, parser, geocoding, provider/workflow errors, and paper-trading controls.
-- Reports market source price-status counts from persisted `source_diagnostics`, such as `supported`, `partial`, `unsupported`, and `stale_supported`.
+- Separates interval precipitation contracts from generic parser failures so public dry-run diagnostics show when a market needs interval probability modeling rather than one-sided threshold parsing.
+- Prioritizes precipitation threshold candidates ahead of broad weather false positives, such as space-weather event-count markets, when selecting the next stored markets to process.
+- Skips stale price snapshots and stale forecast snapshots using configurable freshness limits.
+- Skips markets whose target weather window has already started or elapsed, because the current paper runner uses forecast-only modeling rather than observed-to-date plus remaining forecast data.
+- Applies conservative paper portfolio limits before creating simulated trades: max open trades, total simulated exposure, per-market exposure, and per-location exposure.
+- Optionally applies paper entry slippage to simulated fills while preserving the quoted entry price in `signal_snapshot_json`.
+- Reports market source price-status counts from persisted `source_diagnostics`, such as `supported`, `partial`, `unsupported`, `stale_supported`, and `fresh_price_required`.
+- Reports how many public refresh failures reused a stored binary snapshot through `stale_price_fallbacks_used`.
 - Reports unsupported public price reasons captured from market diagnostics, such as non-binary outcomes, missing binary prices, unsupported fresh price payloads, and source refresh failures.
 - Returns recent workflow/provider errors with the runner record ID that captured each error.
 - Does not refresh public data, call weather providers, create paper trades, or use live execution.

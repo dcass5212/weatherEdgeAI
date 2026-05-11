@@ -28,10 +28,12 @@ def test_alembic_upgrade_head_creates_current_schema(tmp_path, monkeypatch) -> N
         "weather_forecast_snapshots",
         "predictions",
         "ev_recommendations",
-        "paper_trades",
-        "paper_runner_runs",
-        "resolved_outcomes",
-        "alembic_version",
+            "paper_trades",
+            "paper_runner_runs",
+            "resolved_outcomes",
+            "alembic_version",
     }.issubset(set(inspector.get_table_names()))
     market_columns = {column["name"] for column in inspector.get_columns("markets")}
     assert "source_diagnostics" in market_columns
+    paper_trade_columns = {column["name"] for column in inspector.get_columns("paper_trades")}
+    assert "signal_snapshot_json" in paper_trade_columns

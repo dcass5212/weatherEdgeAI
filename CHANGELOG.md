@@ -2,10 +2,85 @@
 
 All notable Codex-assisted changes to WeatherEdge AI are documented here after each implementation prompt.
 
+## 2026-05-10
+
+### Added
+
+- Added `scripts/research_maintenance.py` to preview eligible outcomes, optionally batch-resolve completed weather markets, settle matching open paper trades, generate evidence reports, and write timestamped JSON research logs.
+- Added paper-run and modeling documentation for the algorithm refinement methodology: broad signal collection, gradual exposure increases, all-recommendation analysis, research/portfolio separation, and scheduled outcome resolution before model promotion.
+- Added month-window parsing for precipitation markets such as `in May` so monthly public contracts can later become outcome-resolution eligible.
+- Added Polymarket CLOB market-info client coverage for the current condition-id metadata endpoint.
+- Added fallback coverage proving fresh Gamma price refresh can continue when optional CLOB condition-id lookup fails.
+- Added explicit stale-price fallback gating for the public paper runner through `PAPER_RUNNER_ALLOW_STALE_PRICE_FALLBACK`, `allow_stale_price_fallback`, `--allow-stale-price-fallback`, and `--require-fresh-prices`.
+- Added fresh-price-required diagnostics when public price refresh fails but a stored binary snapshot exists and stale fallback is not enabled.
+- Added public paper-runner diagnostics for `stale_price_fallbacks_used` so overnight validation can distinguish fresh-price runs from opt-in stale replays.
+
+### Changed
+
+- Updated the public paper runner to skip target windows that have already started before requesting forecasts, surfacing them as `target_window_started` instead of provider workflow errors.
+- Updated forecast fetching to fail closed before Open-Meteo calls when a parsed target window has already started, keeping forecast snapshots limited to future target windows.
+- Updated paper-runner docs to explain that started monthly or daily windows need observed-to-date weather plus remaining forecast data before paper evaluation.
+- Updated README and paper-run evaluation docs with the post-run research maintenance command.
+- Updated the paper runner to reparse existing incomplete parsed-market records when target dates or coordinates are missing, letting newer parser/geocoder improvements repair old workflow records.
+- Updated Polymarket price refresh to use a fresh Gamma market payload as the baseline and treat CLOB condition-id metadata as optional enrichment, preventing CLOB lookup failures from blocking otherwise fresh public price refreshes.
+- Updated README, API workflow docs, data-source docs, and roadmap notes for the Gamma-first public price refresh behavior.
+- Updated the public paper runner to fail closed on public price refresh failures by default instead of automatically continuing from stored discovery-time prices.
+- Updated dashboard and runner diagnostics to distinguish `fresh_price_required` from `stale_supported`.
+- Updated README, API workflow docs, local demo docs, paper-run evaluation docs, roadmap notes, and `.env.example` to describe the stricter freshness policy and the explicit opt-in fallback flag.
+
+### Verified
+
+- Ran `.\.venv\Scripts\pytest.exe tests\test_forecast_service.py tests\test_paper_market_runner.py tests\test_api_paper_runner.py tests\test_paper_market_runner_cli.py`; all 48 focused forecast, runner, API, and CLI tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --process-limit 25 --max-trades 25 --quantity 1 --min-liquidity 50 --max-spread 0.25`; the rehearsal completed with `target_window_started=3` and no Open-Meteo 400 workflow errors.
+- Ran `.\.venv\Scripts\python.exe -m py_compile scripts\research_maintenance.py`; the maintenance script compiled successfully.
+- Ran `.\.venv\Scripts\python.exe -m py_compile scripts\research_maintenance.py app\markets\market_parser.py app\strategy\paper_market_runner.py`; the updated parser, runner, and maintenance script compiled successfully.
+- Ran `.\.venv\Scripts\python.exe scripts\research_maintenance.py --help`; command help rendered successfully.
+- Ran `.\.venv\Scripts\python.exe scripts\research_maintenance.py --preview-only --start-date 2026-05-01 --end-date 2026-05-10 --limit 20`; preview and evidence JSON logs were written without provider writes.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_paper_market_runner.py`; all 37 focused parser and runner tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py tests\test_api_markets.py tests\test_paper_market_runner.py`; all 64 focused market, API, and paper-runner tests passed.
+- Ran the focused paper-runner, API, dashboard, and config tests after the freshness-policy change.
+- Ran `scripts/pre_run_smoke.py` after applying the stricter freshness policy.
+
 ## 2026-05-09
 
 ### Added
 
+- Added optional paper entry slippage through `PAPER_RUNNER_ENTRY_SLIPPAGE_RATE`, `--entry-slippage-rate`, and the paper-runner API request model.
+- Added slipped paper fill behavior with zero default; paper trades preserve quoted entry price, fill entry price, slippage rate, and slippage cost in `signal_snapshot_json.paper_trade`.
+- Added focused runner, API, and CLI tests for entry slippage fills, exposure-limit interaction, and argument validation.
+- Added market-implied baseline coverage diagnostics to `GET /evaluation/evidence-report`, including evaluated prediction count, linked market-implied count, missing count, coverage ratio, and missing reason.
+- Added interpretation-limit messages when market-implied comparison coverage is partial or unavailable.
+- Added focused evidence-report tests for full, partial, and missing market-implied baseline coverage.
+- Added paper trade lifecycle counts to `GET /evaluation/evidence-report`, including recommended buy signals, recommended-but-not-traded signals, open, resolved, manually closed, unresolved, and unresolved-past-target-window trades.
+- Added focused evidence-report tests for paper trade lifecycle counts and unresolved-past-target-window detection.
+- Added no-trade paper-run rehearsal support through `POST /paper-runner/rehearsal` and CLI `--rehearsal`.
+- Added `actionable_recommendations` and `expected_paper_trades` to paper runner reports so rehearsals estimate useful signal and trade counts after duplicate-trade, freshness, max-trade, and paper portfolio limits.
+- Added focused runner, API, and CLI tests proving rehearsal creates no `paper_trades` while estimating expected trades.
+- Added `paper_trades.signal_snapshot_json` with an Alembic migration so each simulated entry stores a compact explanation of the parsed target, forecast, prediction, market price, edge, liquidity, spread, recommendation reason, and runner config at creation time.
+- Added signal snapshot generation for manual/demo paper trades and public paper-runner-created trades.
+- Added tests proving demo and runner-created paper trades persist signal snapshots, and migration coverage for the new column.
+- Added read-only `GET /backtests/resolved-outcomes/eligibility-preview` to categorize parsed markets as ready, not ready, missing coordinates, missing target window, already resolved, or skipped before batch outcome resolution.
+- Added focused outcome-eligibility preview test coverage for ready, not-ready, missing-data, already-resolved, and duplicate parsed-market cases.
+- Added conservative paper portfolio limits to the public paper runner: max open simulated trades, max total simulated exposure, max per-market exposure, and max per-location exposure.
+- Added `PAPER_RUNNER_MAX_OPEN_TRADES`, `PAPER_RUNNER_MAX_TOTAL_EXPOSURE`, `PAPER_RUNNER_MAX_MARKET_EXPOSURE`, and `PAPER_RUNNER_MAX_LOCATION_EXPOSURE` settings plus CLI/API overrides.
+- Added paper-runner skip reasons for open-trade, total-exposure, market-exposure, and location-exposure portfolio limits.
+- Added focused paper-runner, API, and CLI tests for portfolio limit enforcement and override handling.
+- Added public paper-runner freshness guards for stale price snapshots, stale forecast snapshots, and already-elapsed target weather windows, with new skip reasons surfaced in runner diagnostics.
+- Added `PAPER_RUNNER_MAX_PRICE_AGE_MINUTES` and `PAPER_RUNNER_MAX_FORECAST_AGE_HOURS` settings plus CLI/API overrides for paper-runner freshness limits.
+- Added focused paper-runner and CLI tests for stale price/forecast skips and freshness override validation.
+- Added outcome-based paper-trade settlement when resolved outcomes are created or observed-weather outcomes are resolved, marking matching open simulated trades `RESOLVED` with binary side payouts.
+- Added `POST /backtests/resolved-outcomes/resolve-weather-batch` to resolve eligible completed parsed precipitation markets in batch, skip existing provider outcomes by default, preserve per-market errors, and optionally settle matching open paper trades.
+- Added backtest `sample_size_gate` and `baseline_comparisons` against model probability, always-50% probability, and market-implied probability when linked market prices exist.
+- Added read-only `GET /evaluation/evidence-report` for multi-day paper-run review, combining runner history, record counts, backtest metrics, baseline comparisons, sample-size gates, unresolved trade counts, and interpretation limits.
+- Added `scripts/pre_run_smoke.py` to verify paper-mode safety settings, database connectivity, required tables, seed-fixture replay, and paper-runner history visibility before longer public paper runs.
+- Added `docs/PAPER_RUN_EVALUATION.md` as the runbook for pre-run checks, bounded multi-day paper runs, outcome resolution, evidence reporting, and interpretation rules.
+- Added configurable backtest paper settlement cost assumptions with `paper_fee_rate` and `paper_slippage_rate`, plus gross PnL, fee cost, slippage cost, net PnL/ROI, and settlement-note response fields.
+- Added focused backtesting coverage proving fee and slippage assumptions reduce paper settlement PnL and ROI.
+- Added opt-in interval precipitation contract support for `between X-Y` markets, including parser output, baseline interval probabilities, observed-outcome resolution, API parse toggle, paper-runner API field, CLI `--allow-interval-contracts` / `--disable-interval-contracts`, and `PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS`.
+- Added public paper-runner candidate prioritization so V1 precipitation markets are processed before broad weather false positives such as space-weather event-count markets.
+- Added London and Hong Kong to the deterministic fixture geocoder so current public precipitation demo markets can progress without external geocoding.
+- Added explicit parser and paper-runner diagnostics for interval precipitation contracts, separating markets such as `between 190-200mm` from generic unsupported wording because they require interval probability modeling.
+- Added roadmap evidence-readiness follow-ups for rolling backtests, baseline comparisons, fee/slippage assumptions, sample-size gates, compact evidence reporting, paper-trade settlement support, and outcome-resolution tooling.
 - Added `GET /paper-runner/diagnostics` to summarize recent public paper-run validation with workflow counts, categorized skip reasons, source price-status counts, unsupported public price reasons, and recent workflow/provider errors.
 - Added detailed parser skip codes to the public paper runner, preserving broad `parse_failed` counts while distinguishing not-precipitation, missing-threshold, unsupported-unit, unsupported-wording, and unknown parser failures.
 - Added focused paper-runner API and orchestration tests for diagnostics aggregation and detailed parser skip recording.
@@ -67,6 +142,20 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Changed
 
+- Updated README, API workflow, local demo, trading-mode docs, paper-run evaluation runbook, roadmap, `.env.example`, and changelog for optional paper entry slippage.
+- Updated README, API workflow, paper-run evaluation runbook, roadmap, and changelog for market-implied comparison coverage diagnostics.
+- Updated README, API workflow, paper-run evaluation runbook, roadmap, and changelog for evidence-report paper trade lifecycle counts.
+- Updated README, API workflow, local demo, paper-run evaluation runbook, roadmap, and changelog for paper-run rehearsal reporting.
+- Updated README, API workflow, data-model docs, paper-run evaluation runbook, roadmap, and changelog for paper trade signal snapshots.
+- Updated README, API workflow, local demo, backtesting spec, paper-run evaluation runbook, roadmap, and changelog for the outcome eligibility preview workflow.
+- Updated README, API workflow, local demo, trading-mode docs, paper-run evaluation runbook, roadmap, and `.env.example` for the default paper portfolio limits and their paper-only purpose.
+- Updated roadmap priorities to make paper-trading hardening the next highest priority before full multi-day runs.
+- Updated README, API workflow, local demo, paper-run evaluation runbook, and environment example docs for paper-runner freshness guards.
+- Updated README, API workflow, local demo, data-model, backtesting spec, and roadmap docs for multi-day paper-run readiness, outcome-based settlement, batch resolution, evidence reporting, sample-size gates, and baseline comparisons.
+- Updated the dashboard evaluation summary contract and frontend metrics panel to display gross paper PnL, net paper PnL, and paper settlement costs.
+- Updated README, API workflow, local demo, backtesting, modeling, and roadmap docs for fee/slippage-aware paper settlement summaries.
+- Updated README, API workflow, local demo, data-model, modeling, roadmap, and trading-mode docs for opt-in interval contracts, candidate prioritization, and the new paper-runner configuration toggle.
+- Updated API workflow and roadmap docs to describe interval-contract parser diagnostics while keeping interval probability modeling out of scope for the current baseline.
 - Updated README, API workflow, roadmap, and data-model docs for the new public paper-run diagnostics report endpoint.
 - Updated frontend source diagnostics to label `stale_supported` refresh failures as `using stored price` instead of a red generic source error.
 - Updated README, roadmap, API workflow, and local demo docs for dashboard-visible paper-runner history and the public dry-run dashboard action.
@@ -104,6 +193,40 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py`; all 38 focused paper-runner/API/CLI tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 168 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 24 focused backtesting, evidence-report, lifecycle, and market-implied coverage tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 164 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 22 focused backtesting, evidence-report, and lifecycle tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 162 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py`; all 34 focused rehearsal, runner, API, and CLI tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 161 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_api_demo.py tests\test_paper_market_runner.py tests\test_migrations.py`; all 20 focused signal snapshot and migration tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 157 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 21 focused backtesting and outcome eligibility tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 157 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py`; all 30 focused paper-runner portfolio-limit/API/CLI tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 156 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py`; all 24 focused paper-runner freshness/API/CLI tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 150 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 20 focused backtesting, settlement, batch resolution, and evidence-report tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 146 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\pre_run_smoke.py --help`; the pre-run smoke command help rendered successfully.
+- Ran `.\.venv\Scripts\python.exe -m compileall app scripts`; backend app and scripts compiled successfully.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py`; all 17 focused backtesting tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py tests\test_api_dashboard.py`; all 21 focused backtesting/dashboard tests passed.
+- Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after adding settlement cost fields.
+- Ran `.\.venv\Scripts\pytest.exe`; all 143 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_baseline_model.py tests\test_paper_market_runner.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py tests\test_api_markets.py tests\test_geocoding.py tests\test_backtesting.py`; all 78 focused parser/modeling/runner/API/geocoding/backtesting tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-spread 1 --process-limit 25`; default-off public dry-run reported interval contracts separately while processing precipitation candidates through forecast/model/EV.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-spread 1 --process-limit 25 --allow-interval-contracts`; opt-in public dry-run advanced interval contracts through forecast/model/EV and left only non-precipitation parser skips.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-spread 1`; default process-limit public dry-run prioritized precipitation markets and avoided space-weather parser failures in the first 10 processed markets.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_market_parser.py tests\test_baseline_model.py`; all 31 focused parser/modeling/runner tests passed after tightening default-off behavior for stored interval parses.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-spread 1 --process-limit 25`; default-off public dry-run continued to report interval contracts as skipped even after a prior opt-in run had created parsed interval records.
+- Ran `.\.venv\Scripts\pytest.exe`; all 142 backend tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_paper_market_runner.py tests\test_api_paper_runner.py`; all 24 focused parser and paper-runner tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --max-spread 1 --process-limit 25`; public dry-run now reports `parse_failed_interval_contract=8` separately from `parse_failed_not_precipitation=14`.
+- Ran `.\.venv\Scripts\pytest.exe`; all 131 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_paper_market_runner.py tests\test_api_paper_runner.py`; all 10 focused paper-runner diagnostics tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_api_dashboard.py`; all 4 dashboard API tests passed after refining source diagnostic labels.
 - Ran `npm run build` in `frontend`; the TypeScript and Vite production build passed after refining source diagnostic labels.

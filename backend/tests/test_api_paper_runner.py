@@ -23,6 +23,13 @@ async def _fake_recorded_run(db: Session, config: PaperMarketRunnerConfig) -> Pa
             "max_spread": config.max_spread,
             "refresh_prices": config.refresh_prices,
             "create_trades": config.create_trades,
+            "allow_interval_contracts": config.allow_interval_contracts,
+            "max_open_trades": config.max_open_trades,
+            "max_total_exposure": config.max_total_exposure,
+            "max_market_exposure": config.max_market_exposure,
+            "max_location_exposure": config.max_location_exposure,
+            "entry_slippage_rate": config.entry_slippage_rate,
+            "allow_stale_price_fallback": config.allow_stale_price_fallback,
         },
         discovered=2,
         created=1,
@@ -36,7 +43,7 @@ async def _fake_recorded_run(db: Session, config: PaperMarketRunnerConfig) -> Pa
         paper_trades_created=0,
         skipped_json={"trade_creation_disabled": 1},
         errors_json=[],
-        report_json={"discovered": 2, "paper_trades_created": 0},
+        report_json={"discovered": 2, "actionable_recommendations": 1, "expected_paper_trades": 1, "paper_trades_created": 0},
     )
     db.add(run)
     db.commit()
@@ -54,6 +61,13 @@ def test_run_paper_runner_once_returns_persisted_run(client: TestClient, monkeyp
             "dry_run": True,
             "max_trades": 1,
             "quantity": 1,
+            "allow_interval_contracts": True,
+            "max_open_trades": 2,
+            "max_total_exposure": 10,
+            "max_market_exposure": 3,
+            "max_location_exposure": 6,
+            "entry_slippage_rate": 0.02,
+            "allow_stale_price_fallback": True,
         },
     )
 
@@ -62,9 +76,38 @@ def test_run_paper_runner_once_returns_persisted_run(client: TestClient, monkeyp
     assert data["status"] == "completed"
     assert data["config"]["keywords"] == ["rain"]
     assert data["config"]["create_trades"] is False
+    assert data["config"]["allow_interval_contracts"] is True
+    assert data["config"]["max_open_trades"] == 2
+    assert data["config"]["max_total_exposure"] == 10
+    assert data["config"]["max_market_exposure"] == 3
+    assert data["config"]["max_location_exposure"] == 6
+    assert data["config"]["entry_slippage_rate"] == 0.02
+    assert data["config"]["allow_stale_price_fallback"] is True
     assert data["discovered"] == 2
     assert data["paper_trades_created"] == 0
+    assert data["actionable_recommendations"] == 1
+    assert data["expected_paper_trades"] == 1
     assert data["skipped"] == {"trade_creation_disabled": 1}
+
+
+def test_paper_runner_rehearsal_forces_no_trade_mode(client: TestClient, monkeypatch) -> None:
+    captured_configs: list[PaperMarketRunnerConfig] = []
+
+    async def fake_recorded_run(db: Session, config: PaperMarketRunnerConfig) -> PaperRunnerRun:
+        captured_configs.append(config)
+        return await _fake_recorded_run(db, config)
+
+    monkeypatch.setattr(routes_paper_runner, "run_paper_market_once_recorded", fake_recorded_run)
+
+    response = client.post(
+        "/paper-runner/rehearsal",
+        json={"keywords": ["rain"], "dry_run": False, "max_trades": 2, "quantity": 1, "allow_stale_price_fallback": True},
+    )
+
+    assert response.status_code == 201
+    assert captured_configs[0].create_trades is False
+    assert captured_configs[0].allow_stale_price_fallback is True
+    assert response.json()["config"]["create_trades"] is False
 
 
 def test_list_and_get_paper_runner_runs(client: TestClient, db_session: Session) -> None:
@@ -116,9 +159,10 @@ def test_paper_runner_diagnostics_summarizes_runs_and_source_diagnostics(
             "missing_binary_prices": 2,
             "parse_failed": 1,
             "price_refresh_failed_used_stored_snapshot": 1,
+            "portfolio_total_exposure_limit": 1,
         },
         errors_json=["market_id=7: provider timeout"],
-        report_json={"processed": 4},
+        report_json={"processed": 4, "stale_price_fallbacks_used": 1},
     )
     second_run = PaperRunnerRun(
         status="completed",
@@ -135,7 +179,7 @@ def test_paper_runner_diagnostics_summarizes_runs_and_source_diagnostics(
         paper_trades_created=0,
         skipped_json={"missing_coordinates": 2, "spread_above_max": 1},
         errors_json=[],
-        report_json={"processed": 2},
+        report_json={"processed": 2, "stale_price_fallbacks_used": 0},
     )
     supported_market = Market(
         source="polymarket",
@@ -171,6 +215,7 @@ def test_paper_runner_diagnostics_summarizes_runs_and_source_diagnostics(
     assert data["processed"] == 6
     assert data["parsed"] == 1
     assert data["recommendations_created"] == 1
+    assert data["stale_price_fallbacks_used"] == 1
     assert data["price_status_counts"] == {"partial": 1, "supported": 1}
     assert data["unsupported_price_reasons"] == [
         {"reason": "missing_binary_yes_no_prices", "count": 1},
@@ -182,5 +227,11 @@ def test_paper_runner_diagnostics_summarizes_runs_and_source_diagnostics(
     assert {"reason": "missing_coordinates", "count": 2, "category": "geocoding", "label": "Parsed location has no coordinates"} in data[
         "skip_reasons"
     ]
+    assert {
+        "reason": "portfolio_total_exposure_limit",
+        "count": 1,
+        "category": "paper_portfolio",
+        "label": "Max total paper exposure reached",
+    } in data["skip_reasons"]
     assert data["error_count"] == 1
     assert data["recent_errors"] == [{"run_id": first_run.id, "message": "market_id=7: provider timeout"}]

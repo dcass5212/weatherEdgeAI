@@ -23,6 +23,8 @@ class GeocodedLocation:
 
 FIXTURE_LOCATIONS = {
     "chicago": GeocodedLocation(name="Chicago", latitude=41.8781, longitude=-87.6298),
+    "hong kong": GeocodedLocation(name="Hong Kong", latitude=22.3193, longitude=114.1694),
+    "london": GeocodedLocation(name="London", latitude=51.5072, longitude=-0.1276),
     "new york": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),
     "new york city": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),
     "nyc": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),

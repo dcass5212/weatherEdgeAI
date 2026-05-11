@@ -5,7 +5,7 @@ Open-Meteo daily forecasts into stored snapshots with normalized precipitation
 units and defensive handling for missing or malformed values.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.db.models import ParsedMarket, WeatherForecastSnapshot, utc_now
@@ -74,6 +74,12 @@ def _target_precip_unit(threshold_unit: str) -> str:
     return "inch" if threshold_unit.lower() in {"inch", "inches", "in"} else threshold_unit.lower()
 
 
+def _aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def build_forecast_snapshot(parsed_market: ParsedMarket, raw_forecast: dict[str, Any]) -> WeatherForecastSnapshot:
     daily = raw_forecast.get("daily") if isinstance(raw_forecast.get("daily"), dict) else {}
     units = raw_forecast.get("daily_units") if isinstance(raw_forecast.get("daily_units"), dict) else {}
@@ -109,6 +115,10 @@ async def fetch_forecast_for_parsed_market(
 ) -> WeatherForecastSnapshot:
     if parsed_market.latitude is None or parsed_market.longitude is None:
         raise ValueError("parsed market must include latitude and longitude before fetching a forecast")
+    if parsed_market.target_start is not None and _aware_datetime(parsed_market.target_start) < utc_now():
+        raise ValueError(
+            "forecast target window has already started; use observed-outcome/archive workflows or a future target window"
+        )
 
     start_date = _date_string(parsed_market.target_start)
     end_date = _date_string(parsed_market.target_end or parsed_market.target_start)

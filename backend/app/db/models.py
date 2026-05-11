@@ -193,6 +193,7 @@ class PaperTrade(TimestampMixin, Base):
     exit_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pnl: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(50), default="OPEN", nullable=False, index=True)
+    signal_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
 
     market: Mapped["Market"] = relationship(back_populates="paper_trades")
     recommendation: Mapped["EVRecommendation | None"] = relationship(back_populates="paper_trades")

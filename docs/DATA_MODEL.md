@@ -61,9 +61,9 @@ Important fields:
 - `location_name`: parsed location.
 - `latitude` and `longitude`: coordinates used for forecast requests.
 - `metric`: currently precipitation.
-- `operator`: one-sided precipitation threshold comparison, currently `>`, `>=`, `<`, or `<=`.
-- `threshold_value`: numeric threshold.
-- `threshold_unit`: currently inches or millimeters for V1 one-sided precipitation thresholds.
+- `operator`: precipitation threshold comparison. One-sided contracts use `>`, `>=`, `<`, or `<=`; opt-in interval contracts use `between`.
+- `threshold_value`: numeric threshold. For interval contracts this is the lower bound.
+- `threshold_unit`: currently inches or millimeters for V1 precipitation thresholds.
 - `target_start` and `target_end`: target weather window.
 - `parse_confidence`: parser confidence estimate.
 - `parser_version`: parser version string.
@@ -77,6 +77,7 @@ Design note:
 
 - Multiple parsed records can exist for the same market as the parser and geocoding improve. Predictions should link to the parsed market record they used.
 - The parser extracts location text; the parse route resolves coordinates through a deterministic geocoder before persisting the parsed market.
+- Interval contract upper bounds are currently stored in `raw_parse_json.interval_upper_value` to avoid a schema migration while the interval baseline remains experimental and opt-in.
 
 ## `market_price_snapshots`
 
@@ -184,6 +185,7 @@ Important fields:
 - `exit_time`: simulated exit time.
 - `pnl`: simulated profit/loss.
 - `status`: `OPEN` or closed-like state.
+- `signal_snapshot_json`: compact explanation of the signal at trade creation time, including parsed target, forecast value, model probability, market price, edge, liquidity, spread, recommendation reason, and runner config when available.
 
 Important constraints:
 
@@ -193,6 +195,8 @@ Important constraints:
 Design note:
 
 - Paper trades are portfolio demo records and research signals. They do not represent real positions.
+- Resolved weather outcomes can settle matching open paper trades. Outcome-based settlement marks the trade `RESOLVED`, stores a binary side payout in `exit_price`, stores simulated PnL, and leaves live execution records out of scope.
+- Signal snapshots are stored directly on paper trades so later evaluation can explain why a simulated trade existed even if newer forecasts, prices, or runner settings are created after entry.
 
 ## `resolved_outcomes`
 
@@ -212,6 +216,7 @@ Design note:
 
 - Resolved outcomes are required for real backtesting and calibration.
 - Backtest replay selects one resolved outcome per market inside the requested evaluation window. If multiple outcome records exist for a market, the latest `resolved_at` record is used, with highest record ID as a deterministic tie-breaker. Raw outcome counts remain visible in coverage diagnostics.
+- Creating or batch-resolving an outcome settles open simulated paper trades for that market by default.
 
 ## `paper_runner_runs`
 

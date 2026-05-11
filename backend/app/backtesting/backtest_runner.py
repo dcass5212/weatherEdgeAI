@@ -7,7 +7,13 @@ from pathlib import Path
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.backtesting.schemas import BacktestCoverageDiagnostics, BacktestRunRequest, BacktestRunResponse, CalibrationBucket
+from app.backtesting.schemas import (
+    BacktestCoverageDiagnostics,
+    BacktestRunRequest,
+    BacktestRunResponse,
+    BaselineComparison,
+    CalibrationBucket,
+)
 from app.db.models import EVRecommendation, Market, PaperTrade, Prediction, ResolvedOutcome, utc_now
 from app.modeling.calibration import calibration_summary
 from app.modeling.metrics import brier_score
@@ -18,9 +24,12 @@ SEED_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seed_replay.json"
 
 @dataclass(frozen=True)
 class ReplayRow:
+    prediction_id: int | None
+    market_id: int | None
     probability_yes: float
     outcome_yes: int
     resolved_at: datetime | None
+    market_probability_yes: float | None = None
 
 
 @dataclass(frozen=True)
@@ -35,9 +44,13 @@ class PaperTradeReplayRow:
 @dataclass(frozen=True)
 class PaperTradeSummary:
     paper_trade_count: int
+    paper_gross_pnl: float | None
+    paper_fee_cost: float | None
+    paper_slippage_cost: float | None
     paper_total_pnl: float | None
     paper_roi: float | None
     max_drawdown: float | None
+    paper_settlement_note: str | None
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -75,6 +88,14 @@ def _sample_size_note(num_predictions: int) -> str:
     return "Sample size is large enough for directional review, but still requires leakage and coverage checks."
 
 
+def _sample_size_gate(num_predictions: int) -> str:
+    if num_predictions < 30:
+        return "insufficient_sample"
+    if num_predictions < 100:
+        return "early_signal"
+    return "reviewable_sample"
+
+
 def _win_rate(rows: list[ReplayRow]) -> float:
     wins = 0
     for row in rows:
@@ -83,6 +104,41 @@ def _win_rate(rows: list[ReplayRow]) -> float:
         if predicted_yes == actual_yes:
             wins += 1
     return round(wins / len(rows), 6)
+
+
+def _comparison_for_probabilities(name: str, rows: list[tuple[float, int]]) -> BaselineComparison:
+    if not rows:
+        return BaselineComparison(name=name, prediction_count=0)
+    replay_rows = [
+        ReplayRow(prediction_id=None, market_id=None, probability_yes=probability, outcome_yes=outcome, resolved_at=None)
+        for probability, outcome in rows
+    ]
+    brier_values = [brier_score(probability, outcome) for probability, outcome in rows]
+    log_loss_values = [_log_loss(probability, outcome) for probability, outcome in rows]
+    return BaselineComparison(
+        name=name,
+        prediction_count=len(rows),
+        brier_score=round(sum(brier_values) / len(brier_values), 6),
+        log_loss=round(sum(log_loss_values) / len(log_loss_values), 6),
+        win_rate=_win_rate(replay_rows),
+    )
+
+
+def _baseline_comparisons(rows: list[ReplayRow]) -> list[BaselineComparison]:
+    return [
+        _comparison_for_probabilities(
+            "model_probability",
+            [(row.probability_yes, row.outcome_yes) for row in rows],
+        ),
+        _comparison_for_probabilities(
+            "always_50_percent",
+            [(0.5, row.outcome_yes) for row in rows],
+        ),
+        _comparison_for_probabilities(
+            "market_implied_probability",
+            [(row.market_probability_yes, row.outcome_yes) for row in rows if row.market_probability_yes is not None],
+        ),
+    ]
 
 
 def _settlement_price(side: str, outcome_yes: int) -> float:
@@ -94,39 +150,75 @@ def _settlement_price(side: str, outcome_yes: int) -> float:
     raise ValueError("paper trade side must be YES or NO")
 
 
-def _paper_trade_summary(rows: list[PaperTradeReplayRow]) -> PaperTradeSummary:
+def _paper_trade_summary(
+    rows: list[PaperTradeReplayRow],
+    *,
+    paper_fee_rate: float = 0.0,
+    paper_slippage_rate: float = 0.0,
+) -> PaperTradeSummary:
     if not rows:
         return PaperTradeSummary(
             paper_trade_count=0,
+            paper_gross_pnl=None,
+            paper_fee_cost=None,
+            paper_slippage_cost=None,
             paper_total_pnl=None,
             paper_roi=None,
             max_drawdown=None,
+            paper_settlement_note=_paper_settlement_note(paper_fee_rate, paper_slippage_rate),
         )
 
     total_cost = 0.0
-    total_pnl = 0.0
+    total_gross_pnl = 0.0
+    total_net_pnl = 0.0
+    total_fee_cost = 0.0
+    total_slippage_cost = 0.0
     cumulative_pnl = 0.0
     peak = 0.0
     max_drawdown = 0.0
     for row in sorted(rows, key=lambda item: item.resolved_at):
         settlement_price = _settlement_price(row.side, row.outcome_yes)
-        cost = row.entry_price * row.quantity
-        pnl = (settlement_price - row.entry_price) * row.quantity
-        total_cost += cost
-        total_pnl += pnl
-        cumulative_pnl += pnl
+        adjusted_entry_price = min(row.entry_price + paper_slippage_rate, 1.0)
+        adjusted_entry_cost = adjusted_entry_price * row.quantity
+        slippage_cost = (adjusted_entry_price - row.entry_price) * row.quantity
+        fee_cost = adjusted_entry_cost * paper_fee_rate
+        gross_pnl = (settlement_price - row.entry_price) * row.quantity
+        net_pnl = (settlement_price - adjusted_entry_price) * row.quantity - fee_cost
+        total_cost += adjusted_entry_cost + fee_cost
+        total_gross_pnl += gross_pnl
+        total_net_pnl += net_pnl
+        total_fee_cost += fee_cost
+        total_slippage_cost += slippage_cost
+        cumulative_pnl += net_pnl
         peak = max(peak, cumulative_pnl)
         max_drawdown = max(max_drawdown, peak - cumulative_pnl)
 
     return PaperTradeSummary(
         paper_trade_count=len(rows),
-        paper_total_pnl=round(total_pnl, 6),
-        paper_roi=round(total_pnl / total_cost, 6) if total_cost else None,
+        paper_gross_pnl=round(total_gross_pnl, 6),
+        paper_fee_cost=round(total_fee_cost, 6),
+        paper_slippage_cost=round(total_slippage_cost, 6),
+        paper_total_pnl=round(total_net_pnl, 6),
+        paper_roi=round(total_net_pnl / total_cost, 6) if total_cost else None,
         max_drawdown=round(max_drawdown, 6),
+        paper_settlement_note=_paper_settlement_note(paper_fee_rate, paper_slippage_rate),
     )
 
 
-def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v1") -> BacktestRunResponse:
+def _paper_settlement_note(paper_fee_rate: float, paper_slippage_rate: float) -> str:
+    return (
+        "Paper settlement applies "
+        f"{paper_fee_rate:.4f} fee rate and {paper_slippage_rate:.4f} entry slippage rate; "
+        "paper_total_pnl and paper_roi are net of those assumptions."
+    )
+
+
+def build_seed_fixture_backtest_response(
+    model_version: str = "baseline_precip_v1",
+    *,
+    paper_fee_rate: float = 0.0,
+    paper_slippage_rate: float = 0.0,
+) -> BacktestRunResponse:
     data = json.loads(SEED_FIXTURE_PATH.read_text())
     rows: list[ReplayRow] = []
     trade_rows: list[PaperTradeReplayRow] = []
@@ -137,9 +229,16 @@ def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v
         resolved_at = _parse_datetime(item.get("resolved_at"))
         rows.append(
             ReplayRow(
+                prediction_id=None,
+                market_id=None,
                 probability_yes=item["p_yes"],
                 outcome_yes=_outcome_to_int(item["actual_outcome"]),
                 resolved_at=resolved_at,
+                market_probability_yes=(
+                    item.get("ev_recommendation", {}).get("market_price_yes")
+                    if item.get("ev_recommendation") is not None
+                    else None
+                ),
             )
         )
         if item.get("ev_recommendation") is not None:
@@ -156,7 +255,11 @@ def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v
                 )
             )
 
-    paper_summary = _paper_trade_summary(trade_rows)
+    paper_summary = _paper_trade_summary(
+        trade_rows,
+        paper_fee_rate=paper_fee_rate,
+        paper_slippage_rate=paper_slippage_rate,
+    )
     coverage_diagnostics = BacktestCoverageDiagnostics(
         candidate_prediction_count=len(rows),
         evaluated_prediction_count=len(rows),
@@ -173,11 +276,17 @@ def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v
             coverage_diagnostics=coverage_diagnostics,
             ev_recommendation_count=ev_recommendation_count,
             paper_trade_count=paper_summary.paper_trade_count,
+            paper_gross_pnl=paper_summary.paper_gross_pnl,
+            paper_fee_cost=paper_summary.paper_fee_cost,
+            paper_slippage_cost=paper_summary.paper_slippage_cost,
             paper_total_pnl=paper_summary.paper_total_pnl,
             paper_roi=paper_summary.paper_roi,
             max_drawdown=paper_summary.max_drawdown,
+            paper_settlement_note=paper_summary.paper_settlement_note,
             status="no_resolved_predictions",
             source="seed_fixture",
+            sample_size_gate=_sample_size_gate(0),
+            baseline_comparisons=_baseline_comparisons(rows),
         )
 
     brier_values = [brier_score(row.probability_yes, row.outcome_yes) for row in rows]
@@ -190,14 +299,20 @@ def build_seed_fixture_backtest_response(model_version: str = "baseline_precip_v
         coverage_diagnostics=coverage_diagnostics,
         ev_recommendation_count=ev_recommendation_count,
         paper_trade_count=paper_summary.paper_trade_count,
+        paper_gross_pnl=paper_summary.paper_gross_pnl,
+        paper_fee_cost=paper_summary.paper_fee_cost,
+        paper_slippage_cost=paper_summary.paper_slippage_cost,
         win_rate=_win_rate(rows),
         brier_score=round(sum(brier_values) / len(brier_values), 6),
         log_loss=round(sum(log_loss_values) / len(log_loss_values), 6),
         calibration_buckets=[CalibrationBucket.model_validate(bucket.__dict__) for bucket in buckets],
         sample_size_note=_sample_size_note(len(rows)),
+        sample_size_gate=_sample_size_gate(len(rows)),
+        baseline_comparisons=_baseline_comparisons(rows),
         paper_total_pnl=paper_summary.paper_total_pnl,
         paper_roi=paper_summary.paper_roi,
         max_drawdown=paper_summary.max_drawdown,
+        paper_settlement_note=paper_summary.paper_settlement_note,
         status="completed",
         source="seed_fixture",
     )
@@ -217,7 +332,11 @@ class BacktestRunner:
         rows = self._load_replay_rows(payload)
         coverage_diagnostics = self._coverage_diagnostics(payload, evaluated_prediction_count=len(rows))
         ev_recommendation_count = self._count_ev_recommendations(payload)
-        paper_summary = _paper_trade_summary(self._load_paper_trade_rows(payload))
+        paper_summary = _paper_trade_summary(
+            self._load_paper_trade_rows(payload),
+            paper_fee_rate=payload.paper_fee_rate,
+            paper_slippage_rate=payload.paper_slippage_rate,
+        )
         if not rows:
             return BacktestRunResponse(
                 model_version=payload.model_version,
@@ -226,11 +345,17 @@ class BacktestRunner:
                 coverage_diagnostics=coverage_diagnostics,
                 ev_recommendation_count=ev_recommendation_count,
                 paper_trade_count=paper_summary.paper_trade_count,
+                paper_gross_pnl=paper_summary.paper_gross_pnl,
+                paper_fee_cost=paper_summary.paper_fee_cost,
+                paper_slippage_cost=paper_summary.paper_slippage_cost,
                 paper_total_pnl=paper_summary.paper_total_pnl,
                 paper_roi=paper_summary.paper_roi,
                 max_drawdown=paper_summary.max_drawdown,
+                paper_settlement_note=paper_summary.paper_settlement_note,
                 status="no_resolved_predictions",
                 source="seed_fixture" if payload.seed_fixtures else "persisted_records",
+                sample_size_gate=_sample_size_gate(0),
+                baseline_comparisons=_baseline_comparisons(rows),
             )
 
         brier_values = [brier_score(row.probability_yes, row.outcome_yes) for row in rows]
@@ -243,14 +368,20 @@ class BacktestRunner:
             coverage_diagnostics=coverage_diagnostics,
             ev_recommendation_count=ev_recommendation_count,
             paper_trade_count=paper_summary.paper_trade_count,
+            paper_gross_pnl=paper_summary.paper_gross_pnl,
+            paper_fee_cost=paper_summary.paper_fee_cost,
+            paper_slippage_cost=paper_summary.paper_slippage_cost,
             win_rate=_win_rate(rows),
             brier_score=round(sum(brier_values) / len(brier_values), 6),
             log_loss=round(sum(log_loss_values) / len(log_loss_values), 6),
             calibration_buckets=[CalibrationBucket.model_validate(bucket.__dict__) for bucket in buckets],
             sample_size_note=_sample_size_note(len(rows)),
+            sample_size_gate=_sample_size_gate(len(rows)),
+            baseline_comparisons=_baseline_comparisons(rows),
             paper_total_pnl=paper_summary.paper_total_pnl,
             paper_roi=paper_summary.paper_roi,
             max_drawdown=paper_summary.max_drawdown,
+            paper_settlement_note=paper_summary.paper_settlement_note,
             status="completed",
             source="seed_fixture" if payload.seed_fixtures else "persisted_records",
         )
@@ -268,13 +399,26 @@ class BacktestRunner:
         )
         return [
             ReplayRow(
+                prediction_id=prediction.id,
+                market_id=prediction.market_id,
                 probability_yes=prediction.p_yes,
                 outcome_yes=_outcome_to_int(outcomes_by_market[prediction.market_id].actual_outcome),
                 resolved_at=outcome.resolved_at,
+                market_probability_yes=self._market_probability_for_prediction(prediction.id),
             )
             for prediction in self.db.scalars(statement)
             if (outcome := outcomes_by_market.get(prediction.market_id)) is not None
         ]
+
+    def _market_probability_for_prediction(self, prediction_id: int) -> float | None:
+        recommendation = self.db.scalars(
+            select(EVRecommendation)
+            .where(EVRecommendation.prediction_id == prediction_id)
+            .where(EVRecommendation.market_price_yes.is_not(None))
+            .order_by(EVRecommendation.created_at.desc(), EVRecommendation.id.desc())
+            .limit(1)
+        ).first()
+        return recommendation.market_price_yes if recommendation is not None else None
 
     def _selected_outcomes_by_market(self, payload: BacktestRunRequest) -> dict[int, ResolvedOutcome]:
         """Pick one deterministic resolved outcome per market for replay.

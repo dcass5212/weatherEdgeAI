@@ -63,5 +63,6 @@ class PaperTradeRead(BaseModel):
     exit_time: datetime | None = None
     pnl: float | None = None
     status: str
+    signal_snapshot_json: dict | None = None
     created_at: datetime
     updated_at: datetime

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.models import Market, PaperRunnerRun
 from app.db.session import get_db
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, run_paper_market_once_recorded
@@ -32,6 +33,19 @@ class PaperRunnerRunRequest(BaseModel):
     max_spread: float = Field(default=0.15, ge=0)
     refresh_prices: bool = True
     dry_run: bool = False
+    allow_interval_contracts: bool = settings.PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS
+    max_price_age_minutes: float | None = Field(default=settings.PAPER_RUNNER_MAX_PRICE_AGE_MINUTES, ge=0)
+    max_forecast_age_hours: float | None = Field(default=settings.PAPER_RUNNER_MAX_FORECAST_AGE_HOURS, ge=0)
+    max_open_trades: int | None = Field(default=settings.PAPER_RUNNER_MAX_OPEN_TRADES, ge=0)
+    max_total_exposure: float | None = Field(default=settings.PAPER_RUNNER_MAX_TOTAL_EXPOSURE, ge=0)
+    max_market_exposure: float | None = Field(default=settings.PAPER_RUNNER_MAX_MARKET_EXPOSURE, ge=0)
+    max_location_exposure: float | None = Field(default=settings.PAPER_RUNNER_MAX_LOCATION_EXPOSURE, ge=0)
+    entry_slippage_rate: float = Field(default=settings.PAPER_RUNNER_ENTRY_SLIPPAGE_RATE, ge=0, le=1)
+    allow_stale_price_fallback: bool = settings.PAPER_RUNNER_ALLOW_STALE_PRICE_FALLBACK
+
+
+class PaperRunnerRehearsalRequest(PaperRunnerRunRequest):
+    dry_run: bool = True
 
 
 class PaperRunnerRunRead(BaseModel):
@@ -50,6 +64,8 @@ class PaperRunnerRunRead(BaseModel):
     forecasts_created: int
     predictions_created: int
     recommendations_created: int
+    actionable_recommendations: int
+    expected_paper_trades: int
     paper_trades_created: int
     skipped: dict
     errors: list[str]
@@ -84,6 +100,7 @@ class PaperRunnerDiagnosticsRead(BaseModel):
     predictions_created: int
     recommendations_created: int
     paper_trades_created: int
+    stale_price_fallbacks_used: int
     skip_reasons: list[PaperRunnerSkipReasonSummary]
     price_status_counts: dict[str, int]
     unsupported_price_reasons: list[PaperRunnerUnsupportedPriceReasonSummary]
@@ -96,13 +113,19 @@ SKIP_REASON_CATEGORIES = {
     "missing_binary_prices": ("price_data", "Missing binary YES/NO prices"),
     "price_refresh_failed": ("price_data", "Public price refresh failed"),
     "price_refresh_failed_used_stored_snapshot": ("price_data", "Used stored price after refresh failure"),
+    "price_refresh_failed_fresh_price_required": ("price_data", "Fresh price required after refresh failure"),
     "price_refresh_unsupported": ("price_data", "Unsupported fresh price payload"),
     "liquidity_below_min": ("eligibility_filter", "Liquidity below configured minimum"),
     "spread_above_max": ("eligibility_filter", "Spread above configured maximum"),
+    "price_snapshot_stale": ("freshness", "Price snapshot is stale"),
+    "forecast_snapshot_stale": ("freshness", "Forecast snapshot is stale"),
+    "target_window_started": ("freshness", "Target weather window already started"),
+    "target_window_elapsed": ("freshness", "Target weather window already elapsed"),
     "parse_failed": ("parser", "Parser could not structure question"),
     "parse_failed_not_precipitation": ("parser", "Question was not a precipitation market"),
     "parse_failed_missing_threshold": ("parser", "Question had no numeric threshold"),
     "parse_failed_unsupported_unit": ("parser", "Question used an unsupported precipitation unit"),
+    "parse_failed_interval_contract": ("parser", "Question used an interval contract that needs interval probability modeling"),
     "parse_failed_unsupported_wording": ("parser", "Question used unsupported precipitation wording"),
     "parse_failed_unknown": ("parser", "Parser failed for an uncategorized reason"),
     "missing_coordinates": ("geocoding", "Parsed location has no coordinates"),
@@ -111,6 +134,10 @@ SKIP_REASON_CATEGORIES = {
     "not_actionable": ("paper_trading", "Recommendation was not actionable"),
     "open_trade_exists": ("paper_trading", "Open paper trade already exists"),
     "max_trades_reached": ("paper_trading", "Max paper-trade cap reached"),
+    "portfolio_open_trade_limit": ("paper_portfolio", "Max open paper trades reached"),
+    "portfolio_total_exposure_limit": ("paper_portfolio", "Max total paper exposure reached"),
+    "portfolio_market_exposure_limit": ("paper_portfolio", "Max per-market paper exposure reached"),
+    "portfolio_location_exposure_limit": ("paper_portfolio", "Max per-location paper exposure reached"),
 }
 
 
@@ -139,6 +166,15 @@ def _config_from_request(payload: PaperRunnerRunRequest) -> PaperMarketRunnerCon
         max_spread=payload.max_spread,
         refresh_prices=payload.refresh_prices,
         create_trades=not payload.dry_run,
+        allow_interval_contracts=payload.allow_interval_contracts,
+        max_price_age_minutes=payload.max_price_age_minutes,
+        max_forecast_age_hours=payload.max_forecast_age_hours,
+        max_open_trades=payload.max_open_trades,
+        max_total_exposure=payload.max_total_exposure,
+        max_market_exposure=payload.max_market_exposure,
+        max_location_exposure=payload.max_location_exposure,
+        entry_slippage_rate=payload.entry_slippage_rate,
+        allow_stale_price_fallback=payload.allow_stale_price_fallback,
     )
 
 
@@ -159,6 +195,8 @@ def _read_model(run: PaperRunnerRun) -> PaperRunnerRunRead:
         forecasts_created=run.forecasts_created,
         predictions_created=run.predictions_created,
         recommendations_created=run.recommendations_created,
+        actionable_recommendations=int(_json_dict(run.report_json).get("actionable_recommendations", 0)),
+        expected_paper_trades=int(_json_dict(run.report_json).get("expected_paper_trades", 0)),
         paper_trades_created=run.paper_trades_created,
         skipped=run.skipped_json,
         errors=run.errors_json,
@@ -170,10 +208,12 @@ def _diagnostics_model(runs: list[PaperRunnerRun], markets: list[Market], source
     skipped = Counter()
     price_statuses = Counter()
     unsupported_price_reasons = Counter()
+    stale_price_fallbacks_used = 0
     recent_errors: list[PaperRunnerRecentError] = []
 
     for run in runs:
         skipped.update({str(reason): int(count) for reason, count in _json_dict(run.skipped_json).items()})
+        stale_price_fallbacks_used += int(_json_dict(run.report_json).get("stale_price_fallbacks_used", 0))
         for message in _json_list(run.errors_json):
             if isinstance(message, str):
                 recent_errors.append(PaperRunnerRecentError(run_id=run.id, message=message))
@@ -198,6 +238,7 @@ def _diagnostics_model(runs: list[PaperRunnerRun], markets: list[Market], source
         predictions_created=sum(run.predictions_created for run in runs),
         recommendations_created=sum(run.recommendations_created for run in runs),
         paper_trades_created=sum(run.paper_trades_created for run in runs),
+        stale_price_fallbacks_used=stale_price_fallbacks_used,
         skip_reasons=[
             _skip_reason_summary(reason, count)
             for reason, count in sorted(skipped.items(), key=lambda item: (-item[1], item[0]))
@@ -218,6 +259,17 @@ async def run_paper_runner_once(payload: PaperRunnerRunRequest, db: Session = De
         run = await run_paper_market_once_recorded(db, _config_from_request(payload))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Paper runner failed: {exc}") from exc
+    return _read_model(run)
+
+
+@router.post("/rehearsal", response_model=PaperRunnerRunRead, status_code=201)
+async def rehearse_paper_runner(payload: PaperRunnerRehearsalRequest, db: Session = Depends(get_db)) -> PaperRunnerRunRead:
+    config = _config_from_request(payload)
+    config = PaperMarketRunnerConfig(**{**config.__dict__, "create_trades": False})
+    try:
+        run = await run_paper_market_once_recorded(db, config)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Paper runner rehearsal failed: {exc}") from exc
     return _read_model(run)
 
 

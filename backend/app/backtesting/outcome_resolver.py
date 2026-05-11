@@ -137,6 +137,17 @@ def _noaa_daily_observed_precip_total(raw_observations: dict[str, Any], threshol
     return total, source_unit
 
 
+def _interval_upper_value(parsed_market: ParsedMarket) -> float | None:
+    raw_parse_json = parsed_market.raw_parse_json if isinstance(parsed_market.raw_parse_json, dict) else {}
+    value = raw_parse_json.get("interval_upper_value")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def build_resolved_outcome_from_observations(
     parsed_market: ParsedMarket,
     raw_observations: dict[str, Any],
@@ -154,6 +165,11 @@ def build_resolved_outcome_from_observations(
         actual_outcome = "YES" if actual_value <= parsed_market.threshold_value else "NO"
     elif parsed_market.operator == "<":
         actual_outcome = "YES" if actual_value < parsed_market.threshold_value else "NO"
+    elif parsed_market.operator == "between":
+        upper_value = _interval_upper_value(parsed_market)
+        if upper_value is None:
+            raise ValueError("between parsed markets require interval_upper_value for observed weather resolution")
+        actual_outcome = "YES" if parsed_market.threshold_value <= actual_value <= upper_value else "NO"
     else:
         raise ValueError(f"unsupported parsed market operator for observed weather resolution: {parsed_market.operator}")
 
@@ -170,6 +186,7 @@ def build_resolved_outcome_from_observations(
             "threshold": {
                 "operator": parsed_market.operator,
                 "value": parsed_market.threshold_value,
+                "interval_upper_value": _interval_upper_value(parsed_market),
                 "unit": parsed_market.threshold_unit,
             },
             "provider_payload": raw_observations,
