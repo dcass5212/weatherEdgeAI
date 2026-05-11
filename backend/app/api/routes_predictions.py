@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Prediction
 from app.db.repositories import get_market, latest_forecast_snapshot, latest_parsed_market, latest_prediction
 from app.db.session import get_db
-from app.modeling.baseline import run_baseline_prediction
+from app.modeling.model_registry import DEFAULT_MODEL_VERSION, available_model_versions, run_prediction_model
 from app.modeling.schemas import PredictionRead
 
 
@@ -13,7 +13,11 @@ router = APIRouter(prefix="/predictions", tags=["predictions"])
 
 
 @router.post("/run/{market_id}", response_model=PredictionRead)
-def run_prediction(market_id: int, db: Session = Depends(get_db)) -> Prediction:
+def run_prediction(
+    market_id: int,
+    model_version: str = Query(default=DEFAULT_MODEL_VERSION),
+    db: Session = Depends(get_db),
+) -> Prediction:
     market = get_market(db, market_id)
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
@@ -26,7 +30,16 @@ def run_prediction(market_id: int, db: Session = Depends(get_db)) -> Prediction:
     if forecast is None:
         raise HTTPException(status_code=409, detail="Forecast snapshot required before prediction")
 
-    result = run_baseline_prediction(parsed_market, forecast)
+    try:
+        result = run_prediction_model(parsed_market, forecast, model_version=model_version)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(exc),
+                "supported_model_versions": list(available_model_versions()),
+            },
+        ) from exc
     prediction = Prediction(
         market_id=market.id,
         parsed_market_id=parsed_market.id,

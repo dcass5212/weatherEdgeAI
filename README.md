@@ -5,6 +5,7 @@ WeatherEdge AI is a portfolio-grade AI/ML backend for weather-related prediction
 Paper trading is the required first execution mode and remains the default for local development, tests, demos, and strategy validation. Live trading may be added later in this backend only after safety controls exist, including explicit live-mode configuration, credential isolation, position limits, audit logging, kill-switch behavior, and tests that prove paper mode cannot place real orders.
 
 The current settings make that boundary explicit with `TRADING_MODE=paper` and `LIVE_TRADING_ENABLED=false` by default. No live execution adapter or order-placement endpoint is implemented.
+Probability modeling includes the default transparent `baseline_precip_v1` and an optional fixed-coefficient `logistic_precip_v1` model. The logistic model is selectable for research comparisons but is not presented as trained or performance-proven.
 
 ## Portfolio Goal
 
@@ -107,6 +108,59 @@ The Compose service runs PostgreSQL 16 in a container named `weatheredge-postgre
 postgresql+psycopg2://weatheredge:weatheredge@localhost:5432/weatheredge
 ```
 
+## Local Database Maintenance
+
+These commands are for local development only. They operate on the Docker
+PostgreSQL container named `weatheredge-postgres`.
+
+Open a SQL shell:
+
+```powershell
+cd C:\weatherEdgeAI
+docker exec -it weatheredge-postgres psql -U weatheredge -d weatheredge
+```
+
+Show paper-trading research table counts:
+
+```powershell
+cd C:\weatherEdgeAI
+docker exec -it weatheredge-postgres psql -U weatheredge -d weatheredge -c "SELECT 'paper_trades' AS table_name, COUNT(*) FROM paper_trades UNION ALL SELECT 'paper_runner_runs', COUNT(*) FROM paper_runner_runs UNION ALL SELECT 'resolved_outcomes', COUNT(*) FROM resolved_outcomes;"
+```
+
+Clear simulated paper trades and reset their local IDs:
+
+```powershell
+cd C:\weatherEdgeAI
+docker exec -it weatheredge-postgres psql -U weatheredge -d weatheredge -c "TRUNCATE TABLE paper_trades RESTART IDENTITY;"
+```
+
+Clear simulated paper trades and public paper-run history:
+
+```powershell
+cd C:\weatherEdgeAI
+docker exec -it weatheredge-postgres psql -U weatheredge -d weatheredge -c "TRUNCATE TABLE paper_trades, paper_runner_runs RESTART IDENTITY;"
+```
+
+Clear local evaluation records and simulated paper-trading history while keeping
+markets, parsed targets, forecasts, predictions, and EV recommendations:
+
+```powershell
+cd C:\weatherEdgeAI
+docker exec -it weatheredge-postgres psql -U weatheredge -d weatheredge -c "TRUNCATE TABLE paper_trades, paper_runner_runs, resolved_outcomes RESTART IDENTITY;"
+```
+
+Fully reset the local database volume. This deletes all local PostgreSQL data,
+including discovered markets, snapshots, predictions, recommendations, paper
+trades, outcomes, and runner history:
+
+```powershell
+cd C:\weatherEdgeAI
+docker compose down -v
+docker compose up -d
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\alembic.exe upgrade head
+```
+
 ## Run Migrations
 
 Create or update the local PostgreSQL schema with Alembic before starting the API:
@@ -179,6 +233,17 @@ pytest
 
 ## Run Scripted Demo
 
+For the fastest no-service deterministic demo:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\quick_demo.py
+```
+
+This runs the paper workflow, seed backtest, and dashboard summary in-process
+against a temporary in-memory SQLite database. It does not require Docker,
+PostgreSQL, frontend setup, or network access.
+
 After PostgreSQL is running and migrations are applied:
 
 ```powershell
@@ -203,6 +268,75 @@ prediction: model_version='baseline_precip_v1', p_yes=0.75, p_no=0.25
 strategy: recommendation='PAPER_BUY_YES', market_price_yes=0.44, edge_yes=0.31
 paper_trade: side='YES', entry_price=0.44, quantity=10.0, status='OPEN'
 market_detail: latest_price_snapshot_id=1, latest_forecast_snapshot_id=1, latest_prediction_id=1, latest_ev_recommendation_id=1, latest_paper_trade_id=1, next_action='monitor_paper_trade'
+```
+
+## Run The Workflow With Different Models
+
+Prediction runs default to the transparent baseline model:
+
+```text
+baseline_precip_v1
+```
+
+The optional comparison model is:
+
+```text
+logistic_precip_v1
+```
+
+The logistic model uses fixed, hand-selected coefficients over forecast-vs-threshold
+features. It is useful for research comparison, but it is not trained or
+performance-proven yet.
+
+After a market has been discovered, parsed, and given a forecast snapshot, run
+the default model through the API:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/predictions/run/1
+```
+
+Run the same prediction step with the logistic model:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8000/predictions/run/1?model_version=logistic_precip_v1"
+```
+
+Then evaluate strategy as usual. The latest prediction for that market is used:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/strategy/evaluate/1
+```
+
+For public paper-runner research, keep the default baseline:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --model-version baseline_precip_v1
+```
+
+Run the same guarded no-trade pass with the logistic model:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --model-version logistic_precip_v1
+```
+
+Backtests and evidence reports filter by stored `model_version`, so compare model
+versions by running each model, resolving outcomes when target windows complete,
+and then using the same evaluation window with each version:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/backtests/run `
+  -ContentType "application/json" `
+  -Body '{"start_date":"2026-05-01","end_date":"2026-05-10","model_version":"logistic_precip_v1"}'
 ```
 
 ## Run One Public-Market Paper Pass

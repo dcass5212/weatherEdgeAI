@@ -31,7 +31,7 @@ from app.db.repositories import latest_parsed_market, latest_price_snapshot
 from app.markets.market_discovery import DiscoveredMarket, DiscoveredPriceSnapshot, MarketDiscoveryService, MarketSourceRefreshService, build_source_diagnostics, normalize_price_snapshot
 from app.markets.market_parser import parse_precipitation_market
 from app.markets.polymarket_client import PublicMarketDataError
-from app.modeling.baseline import run_baseline_prediction
+from app.modeling.model_registry import DEFAULT_MODEL_VERSION, run_prediction_model
 from app.strategy.ev import evaluate_market_edge
 from app.strategy.paper_trader import create_paper_trade_from_recommendation
 from app.weather.forecast_service import fetch_forecast_for_parsed_market
@@ -62,6 +62,7 @@ class PaperMarketRunnerConfig:
     max_location_exposure: float | None = settings.PAPER_RUNNER_MAX_LOCATION_EXPOSURE
     entry_slippage_rate: float = settings.PAPER_RUNNER_ENTRY_SLIPPAGE_RATE
     allow_stale_price_fallback: bool = settings.PAPER_RUNNER_ALLOW_STALE_PRICE_FALLBACK
+    model_version: str = DEFAULT_MODEL_VERSION
 
 
 @dataclass
@@ -497,7 +498,7 @@ class PaperMarketRunner:
         forecast: WeatherForecastSnapshot,
         report: PaperMarketRunnerReport,
     ) -> Prediction:
-        result = run_baseline_prediction(parsed_market, forecast)
+        result = run_prediction_model(parsed_market, forecast, model_version=self.config.model_version)
         prediction = Prediction(
             market_id=market.id,
             parsed_market_id=parsed_market.id,

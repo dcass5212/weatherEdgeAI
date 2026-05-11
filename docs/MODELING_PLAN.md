@@ -25,9 +25,9 @@ Initial examples:
 The current parser and baseline model support one-sided precipitation thresholds: `>`, `>=`, `<`, and `<=`, with inch and millimeter thresholds. Interval contracts such as `between 2 and 3 inches` are available only behind an explicit experimental toggle for paper-runner research; they should not be treated as a proven model improvement.
 The parser extracts target windows for daily wording such as `tomorrow` and `on May 5`, plus month windows such as `in May`, because observed-outcome resolution and trade settlement require a completed target window.
 
-## Current Baseline
+## Implemented Models
 
-Current model version:
+Default model version:
 
 ```text
 baseline_precip_v1
@@ -65,6 +65,27 @@ Purpose:
 - Establish an end-to-end prediction pipeline.
 - Provide a baseline for later model comparisons.
 - Keep behavior easy to explain in interviews.
+
+Additional implemented model version:
+
+```text
+logistic_precip_v1
+```
+
+Current behavior:
+
+- Uses a fixed-coefficient logistic regression formula over explicit precipitation features.
+- Computes a YES-side margin between forecast precipitation and the parsed threshold.
+- Converts inch and millimeter thresholds when forecast and parsed threshold units differ.
+- Stores feature payload fields including normalized threshold, margin, margin ratio, logit, model family, and coefficient source.
+- Supports the same one-sided operators as the baseline and the opt-in interval-contract shape.
+- Is selectable through `POST /predictions/run/{market_id}?model_version=logistic_precip_v1`, the paper-runner API request field, and the paper-runner CLI `--model-version logistic_precip_v1`.
+
+Limitations:
+
+- The current coefficients are hand-selected initial coefficients, not trained coefficients.
+- This model should be treated as a smoother comparison candidate against `baseline_precip_v1`, not as evidence of improved trading performance.
+- Promotion requires resolved-outcome evaluation across Brier score, log loss, calibration, market-implied comparisons, coverage, and paper-run evidence.
 
 ## Feature Roadmap
 
@@ -122,7 +143,8 @@ Possible approach:
 
 Done when:
 
-- The heuristic improves calibration versus `baseline_precip_v1`.
+- A first fixed-coefficient logistic version exists. Implemented as `logistic_precip_v1`.
+- The heuristic improves calibration versus `baseline_precip_v1`. Not yet proven.
 - Model assumptions are documented.
 - Backtest output compares both versions.
 

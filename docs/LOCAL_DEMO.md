@@ -72,6 +72,18 @@ The frontend uses the Vite `/api` proxy to reach `http://127.0.0.1:8000`, so bac
 
 ## Scripted Demo
 
+For the fastest deterministic demo with no PostgreSQL, Docker, frontend setup,
+or network access:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\quick_demo.py
+```
+
+This command uses a temporary in-memory SQLite database, runs the paper-only demo
+workflow through FastAPI routes, runs the seed-fixture backtest, reads the
+dashboard summary, and prints the safety boundary.
+
 After PostgreSQL is running and migrations are applied, run the full paper-trading workflow from the backend directory:
 
 ```powershell

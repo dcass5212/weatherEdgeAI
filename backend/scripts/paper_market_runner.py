@@ -20,6 +20,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.session import SessionLocal  # noqa: E402
+from app.modeling.model_registry import DEFAULT_MODEL_VERSION, available_model_versions  # noqa: E402
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, PaperMarketRunnerReport, run_paper_market_once_recorded  # noqa: E402
 
 
@@ -38,6 +39,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quantity", type=float, default=1.0, help="Maximum simulated quantity per paper trade.")
     parser.add_argument("--min-liquidity", type=float, default=0.0, help="Skip markets below this liquidity when present.")
     parser.add_argument("--max-spread", type=float, default=0.15, help="Skip markets above this spread when present.")
+    parser.add_argument(
+        "--model-version",
+        default=DEFAULT_MODEL_VERSION,
+        choices=available_model_versions(),
+        help="Prediction model version to use for this paper pass.",
+    )
     parser.add_argument(
         "--max-open-trades",
         type=int,
@@ -185,6 +192,7 @@ def _config_from_args(args: argparse.Namespace) -> PaperMarketRunnerConfig:
         quantity=args.quantity,
         min_liquidity=args.min_liquidity,
         max_spread=args.max_spread,
+        model_version=args.model_version,
         refresh_prices=not args.no_refresh_prices,
         create_trades=not args.dry_run,
         allow_interval_contracts=(

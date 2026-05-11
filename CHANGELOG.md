@@ -6,6 +6,18 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Added
 
+- Added a README section explaining how to run the prediction, strategy, paper-runner, and backtest workflow with different model versions.
+- Added `logistic_precip_v1`, a fixed-coefficient logistic regression precipitation model with explicit forecast-vs-threshold features, unit conversion for inch/millimeter thresholds, and versioned prediction output.
+- Added a prediction model registry and `model_version` selection for `POST /predictions/run/{market_id}`, keeping `baseline_precip_v1` as the default.
+- Added `model_version` selection to the public paper-runner API and CLI so dry runs can compare `baseline_precip_v1` and `logistic_precip_v1` without changing paper-mode defaults.
+- Added focused logistic-model and API selection tests.
+- Added `scripts/quick_demo.py`, a one-command deterministic demo that runs the paper workflow, seed backtest, dashboard summary, and safety-boundary output in-process against temporary SQLite without Docker, PostgreSQL, frontend setup, or network access.
+- Added README, local demo, and demo-plan documentation for the quick demo command.
+- Added roadmap follow-up tasks for multi-day evidence loops, walk-forward backtesting, observed-outcome provider quality, calibrated model iteration, public market-data hardening, dashboard evidence views, CI, operational polish, and deferred live-trading safety work.
+- Added README local database maintenance commands for inspecting paper research
+  table counts, clearing simulated paper trades, clearing paper-run history,
+  clearing local outcome evaluation records, and fully resetting the local
+  PostgreSQL volume.
 - Added `scripts/research_maintenance.py` to preview eligible outcomes, optionally batch-resolve completed weather markets, settle matching open paper trades, generate evidence reports, and write timestamped JSON research logs.
 - Added paper-run and modeling documentation for the algorithm refinement methodology: broad signal collection, gradual exposure increases, all-recommendation analysis, research/portfolio separation, and scheduled outcome resolution before model promotion.
 - Added month-window parsing for precipitation markets such as `in May` so monthly public contracts can later become outcome-resolution eligible.
@@ -30,6 +42,8 @@ All notable Codex-assisted changes to WeatherEdge AI are documented here after e
 
 ### Verified
 
+- Ran `.\.venv\Scripts\pytest.exe tests\test_logistic_regression_model.py tests\test_baseline_model.py tests\test_api_provenance.py tests\test_paper_market_runner_cli.py tests\test_api_paper_runner.py`; all 33 focused modeling, API, and runner selector tests passed.
+- Ran `.\.venv\Scripts\pytest.exe`; all 183 backend tests passed.
 - Ran `.\.venv\Scripts\pytest.exe tests\test_forecast_service.py tests\test_paper_market_runner.py tests\test_api_paper_runner.py tests\test_paper_market_runner_cli.py`; all 48 focused forecast, runner, API, and CLI tests passed.
 - Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --process-limit 25 --max-trades 25 --quantity 1 --min-liquidity 50 --max-spread 0.25`; the rehearsal completed with `target_window_started=3` and no Open-Meteo 400 workflow errors.
 - Ran `.\.venv\Scripts\python.exe -m py_compile scripts\research_maintenance.py`; the maintenance script compiled successfully.

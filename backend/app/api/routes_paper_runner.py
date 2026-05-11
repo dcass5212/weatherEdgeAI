@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import Market, PaperRunnerRun
 from app.db.session import get_db
+from app.modeling.model_registry import DEFAULT_MODEL_VERSION, available_model_versions
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, run_paper_market_once_recorded
 
 
@@ -42,6 +43,7 @@ class PaperRunnerRunRequest(BaseModel):
     max_location_exposure: float | None = Field(default=settings.PAPER_RUNNER_MAX_LOCATION_EXPOSURE, ge=0)
     entry_slippage_rate: float = Field(default=settings.PAPER_RUNNER_ENTRY_SLIPPAGE_RATE, ge=0, le=1)
     allow_stale_price_fallback: bool = settings.PAPER_RUNNER_ALLOW_STALE_PRICE_FALLBACK
+    model_version: str = DEFAULT_MODEL_VERSION
 
 
 class PaperRunnerRehearsalRequest(PaperRunnerRunRequest):
@@ -155,6 +157,9 @@ def _json_list(value: Any) -> list:
 
 
 def _config_from_request(payload: PaperRunnerRunRequest) -> PaperMarketRunnerConfig:
+    if payload.model_version not in available_model_versions():
+        supported = ", ".join(available_model_versions())
+        raise HTTPException(status_code=422, detail=f"Unsupported model_version '{payload.model_version}'. Supported versions: {supported}")
     return PaperMarketRunnerConfig(
         source=payload.source,
         keywords=payload.keywords,
@@ -175,6 +180,7 @@ def _config_from_request(payload: PaperRunnerRunRequest) -> PaperMarketRunnerCon
         max_location_exposure=payload.max_location_exposure,
         entry_slippage_rate=payload.entry_slippage_rate,
         allow_stale_price_fallback=payload.allow_stale_price_fallback,
+        model_version=payload.model_version,
     )
 
 

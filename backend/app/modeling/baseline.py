@@ -1,3 +1,10 @@
+"""Transparent precipitation baseline model.
+
+This module keeps the original deterministic probability bands for weather
+threshold markets. It remains the default model because it is simple,
+inspectable, and useful as a comparison point for newer model versions.
+"""
+
 from dataclasses import dataclass
 
 from app.db.models import ParsedMarket, WeatherForecastSnapshot

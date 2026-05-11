@@ -83,6 +83,100 @@ def test_run_prediction_records_exact_latest_parsed_market_and_forecast_snapshot
     assert body["features_json"]["forecast_precip_total"] == 1.6
 
 
+def test_run_prediction_accepts_logistic_model_version(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    market = Market(
+        source="mock",
+        source_market_id="logistic-prediction-market",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+
+    parsed_market = ParsedMarket(
+        market_id=market.id,
+        location_name="New York City",
+        latitude=40.7128,
+        longitude=-74.006,
+        metric="precipitation",
+        operator=">",
+        threshold_value=1.0,
+        threshold_unit="inch",
+        parse_confidence=0.8,
+        parser_version="regex_precip_v1",
+    )
+    db_session.add(parsed_market)
+    db_session.flush()
+
+    forecast = WeatherForecastSnapshot(
+        parsed_market_id=parsed_market.id,
+        forecast_source="fixture",
+        forecast_timestamp=_dt(4),
+        forecast_precip_total=1.6,
+        forecast_precip_unit="inch",
+        raw_json={"fixture": "latest"},
+    )
+    db_session.add(forecast)
+    db_session.commit()
+
+    response = client.post(f"/predictions/run/{market.id}?model_version=logistic_precip_v1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model_version"] == "logistic_precip_v1"
+    assert body["p_yes"] > 0.75
+    assert body["features_json"]["model_family"] == "fixed_coefficient_logistic_regression"
+
+
+def test_run_prediction_rejects_unknown_model_version(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    market = Market(
+        source="mock",
+        source_market_id="unknown-model-prediction-market",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+    )
+    db_session.add(market)
+    db_session.flush()
+
+    parsed_market = ParsedMarket(
+        market_id=market.id,
+        location_name="New York City",
+        latitude=40.7128,
+        longitude=-74.006,
+        metric="precipitation",
+        operator=">",
+        threshold_value=1.0,
+        threshold_unit="inch",
+        parse_confidence=0.8,
+        parser_version="regex_precip_v1",
+    )
+    db_session.add(parsed_market)
+    db_session.flush()
+
+    forecast = WeatherForecastSnapshot(
+        parsed_market_id=parsed_market.id,
+        forecast_source="fixture",
+        forecast_timestamp=_dt(4),
+        forecast_precip_total=1.6,
+        forecast_precip_unit="inch",
+        raw_json={"fixture": "latest"},
+    )
+    db_session.add(forecast)
+    db_session.commit()
+
+    response = client.post(f"/predictions/run/{market.id}?model_version=missing_model")
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["detail"]["supported_model_versions"] == ["baseline_precip_v1", "logistic_precip_v1"]
+
+
 def test_strategy_evaluation_records_exact_latest_price_snapshot_and_exposes_prediction_provenance(
     client: TestClient,
     db_session: Session,

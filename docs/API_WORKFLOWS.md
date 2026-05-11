@@ -428,7 +428,7 @@ Failure cases:
 
 ## Workflow 4: Run Prediction
 
-Run the baseline model for a market.
+Run a versioned probability model for a market.
 
 Request:
 
@@ -436,12 +436,18 @@ Request:
 POST /predictions/run/{market_id}
 ```
 
+Optional query parameter:
+
+- `model_version`: defaults to `baseline_precip_v1`; supported values are currently `baseline_precip_v1` and `logistic_precip_v1`.
+
 Current behavior:
 
 - Uses the latest parsed market.
 - Uses the latest forecast snapshot for that parsed market.
 - Stores a prediction with model version, probabilities, confidence, and feature payload.
 - The stored prediction records the exact `parsed_market_id` and `forecast_snapshot_id` used for reproducibility.
+- `baseline_precip_v1` remains the default transparent banded baseline.
+- `logistic_precip_v1` uses a fixed-coefficient logistic regression formula over forecast-vs-threshold features. Its coefficients are hand-selected initial coefficients, not trained performance evidence.
 
 Expected response fields:
 
@@ -469,6 +475,7 @@ Failure cases:
 
 - `404` when the market does not exist.
 - `409` when parsing or forecast snapshot creation has not happened yet.
+- `422` when an unsupported `model_version` is requested.
 
 ## Workflow 5: Evaluate Strategy
 
@@ -896,9 +903,12 @@ Content-Type: application/json
   "max_market_exposure": 5,
   "max_location_exposure": 10,
   "entry_slippage_rate": 0.0,
-  "allow_stale_price_fallback": false
+  "allow_stale_price_fallback": false,
+  "model_version": "baseline_precip_v1"
 }
 ```
+
+Set `model_version` to `logistic_precip_v1` to run the same paper-only workflow with the fixed-coefficient logistic regression model. The default remains `baseline_precip_v1`.
 
 Run a no-trade rehearsal through the same workflow:
 

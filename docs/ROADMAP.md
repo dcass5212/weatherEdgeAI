@@ -51,6 +51,7 @@ Implemented:
 - Fixture-backed forecast normalization for mixed values, missing values, unit conversion, temperature summaries, and raw payload preservation.
 - Baseline precipitation probability model for one-sided precipitation thresholds, including greater-than and less-than style markets, plus opt-in interval precipitation contracts for paper-runner research.
 - Stored prediction outputs with model version, feature payload, parsed-market provenance, and forecast-snapshot provenance.
+- Fixed-coefficient logistic regression precipitation model, `logistic_precip_v1`, selectable for prediction runs and paper-runner research while keeping `baseline_precip_v1` as the default.
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
 - Market detail workflow status showing completed pipeline steps and the next recommended backend action.
 - Market detail reads expose the latest forecast snapshot and latest paper trade alongside parsed market, price snapshot, prediction, EV recommendation, and workflow status.
@@ -339,6 +340,7 @@ Objective: make the project easy to evaluate quickly.
 Work:
 
 - Add a demo seed command or scripted API flow. Initial scripted workflow is implemented.
+- Add a one-command deterministic demo for first-pass review. Done with `scripts/quick_demo.py`, which runs the paper workflow, seed backtest, dashboard summary, and safety-boundary output in-process against temporary SQLite without Docker, PostgreSQL, frontend setup, or network access.
 - Tighten README around setup, demo, technical highlights, and the paper-trading boundary. Initial architecture overview, smoke-demo output, backtest output, and observed-outcome boundary notes are implemented.
 - Keep API workflow documentation current. Initial workflow documentation is current with the implemented paper-trading and backtest paths.
 - Add architecture and data-model diagrams if useful.
@@ -460,14 +462,15 @@ Portfolio value:
 
 ## Near-Term Recommended Order
 
-1. Implement paper-trading hardening for multi-day runs, starting with price/forecast freshness guards, portfolio limits, outcome eligibility preview, trade signal snapshots, and rehearsal reporting.
-2. Continue improving real public market-data integration while preserving paper mode as default.
-3. Broaden observed-outcome coverage beyond the initial Open-Meteo archive precipitation resolver.
-4. Continue evidence-readiness work beyond the initial report: rolling backtests, market-implied coverage diagnostics, lifecycle counts, and unresolved-past-target-window diagnostics.
-5. Keep `LOCAL_DEMO.md` aligned with the working API flow.
-6. Polish README and docs for a 10-minute local portfolio review.
-7. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
-8. Add real execution only after safety controls are implemented and tested.
+1. Run and document multi-day paper-market evidence loops with persisted public run history, batch outcome resolution, settled paper trades, and evidence reports.
+2. Add rolling or walk-forward backtests so evaluation is not tied to one static replay window.
+3. Improve observed-outcome provider quality, especially NOAA station-selection diagnostics, source uncertainty, and provider comparison where available.
+4. Evaluate `logistic_precip_v1` against `baseline_precip_v1`, market-implied probability, and always-50% with resolved outcomes; tune or train coefficients only after enough evaluated records exist.
+5. Continue improving real public market-data integration while preserving paper mode as default, especially captured fixture coverage for unsupported public payloads.
+6. Expand the dashboard to show evidence-report details and public paper-run diagnostics more directly.
+7. Add CI and operational polish, including backend tests, frontend build checks, structured runner logs, readiness checks, and failure-mode coverage.
+8. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
+9. Add real execution only after safety controls are implemented and tested.
 
 ## Priority Rules
 

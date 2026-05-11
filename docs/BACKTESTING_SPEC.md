@@ -65,6 +65,7 @@ Current initial implementation:
 - Backtest responses include `coverage_diagnostics` so skipped or unevaluated records are visible. The diagnostics report candidate predictions for the selected model, evaluated prediction/outcome pairs, predictions missing outcomes in the requested window, resolved outcomes without matching selected-model predictions, and predictions excluded because they belong to another model version. `resolved_outcome_count_in_window` still reports raw outcome records, so duplicate or corrected outcome rows remain visible even though replay selects one outcome per market.
 - Resolved outcome creation and observed-weather resolution settle open simulated paper trades for the same market by default. Settlement marks those paper trades `RESOLVED`, sets the side payout to `1.0` for the winning YES/NO side or `0.0` for the losing side, and stores simulated PnL on the paper-trade record.
 - `GET /evaluation/evidence-report` composes runner history, record counts, backtest metrics, baseline comparisons, sample-size gates, unresolved paper-trade counts, and interpretation limits for multi-day paper-run review.
+- Prediction replay can evaluate any stored `model_version`, including the default `baseline_precip_v1` and the fixed-coefficient `logistic_precip_v1`, as long as resolved outcomes exist for that model's predictions.
 
 ## Metrics
 

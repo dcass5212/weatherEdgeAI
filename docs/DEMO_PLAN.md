@@ -77,6 +77,18 @@ For a scripted walkthrough, run:
 
 ```powershell
 cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\quick_demo.py
+```
+
+This is the fastest deterministic command for local review. It uses an
+in-memory SQLite database, runs the paper workflow, runs the seed backtest,
+reads the dashboard summary, and avoids PostgreSQL, Docker, frontend setup, and
+network dependencies.
+
+For a database-backed scripted walkthrough, run:
+
+```powershell
+cd C:\weatherEdgeAI\backend
 .\.venv\Scripts\python.exe scripts\demo_workflow.py
 ```
 
