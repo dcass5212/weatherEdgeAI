@@ -39,7 +39,7 @@ Content-Type: application/json
 
 {
   "source": "mock",
-  "keywords": ["rain", "weather"],
+  "keywords": ["rain", "precipitation"],
   "limit": 10
 }
 ```
@@ -48,9 +48,10 @@ Current behavior:
 
 - `source: "mock"` returns deterministic demo markets.
 - Non-mock discovery uses a Polymarket-style public market source. It searches Gamma `public-search` by keyword first, deduplicates event results, falls back to active event listing when search returns no candidates, and skips inactive or closed child markets.
+- Default non-mock discovery keywords are precipitation-first (`rain`, `rainfall`, `precipitation`, `snow`, `temperature`, `inch`, `mm`) so automated collection does not start from the broad `weather` query that currently returns many space-weather event-count markets.
 - Discovered markets are persisted idempotently by source and source market ID.
 - Discovery persists source-aware market price snapshots when source price data is available.
-- Discovery stores market-level `source_diagnostics` describing supported metadata, price, top-of-book, liquidity, volume, status, and resolution fields.
+- Discovery stores market-level `source_diagnostics` describing supported metadata, price, top-of-book, Gamma/CLOB liquidity and volume fields, status, and resolution fields.
 
 Expected response shape:
 
@@ -316,13 +317,15 @@ Current frontend behavior:
 
 - Reads `GET /health`.
 - Reads `GET /dashboard/summary`.
+- Reads `GET /paper-trades` and `GET /paper-trades?status=OPEN` for open and historical paper-trade views.
+- Reads `GET /backtests/resolved-outcomes` for the outcome log.
 - Shows recent market workflow rows with compact latest parsed target, forecast, model, price, EV, and paper-trade status values.
 - Shows compact market source diagnostics, including supported/partial/unsupported price status and unsupported reasons.
 - Shows compact backtest metrics, paper replay metrics, calibration buckets, and sample-size context.
-- Shows paper-buy opportunities and open paper trades.
+- Shows paper-buy opportunities, open paper trades, all stored paper trades, and resolved outcome logs.
 - Shows recent public paper-runner runs with status, dry-run mode, workflow counts, skip reasons, and errors.
 - Provides a `Run Paper Demo` button that calls only `POST /demo/paper-workflow`.
-- Provides a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so it can discover and evaluate public markets without creating paper trades.
+- Provides a run console for `POST /paper-runner/run-once` with dry-run, max-trade, quantity, liquidity, and spread controls. Dry-run remains the default public setting; turning it off creates simulated paper trades only.
 - Does not expose live-trading controls.
 
 Run it after starting the backend:
@@ -584,6 +587,36 @@ Content-Type: application/json
   "paper_slippage_rate": 0.0
 }
 ```
+
+Run a walk-forward replay when you want the same persisted-record evaluation
+split into rolling date windows:
+
+```http
+POST /backtests/walk-forward
+Content-Type: application/json
+
+{
+  "start_date": "2026-05-01",
+  "end_date": "2026-05-31",
+  "model_version": "baseline_precip_v1",
+  "window_days": 7,
+  "step_days": 1,
+  "paper_fee_rate": 0.0,
+  "paper_slippage_rate": 0.0
+}
+```
+
+Current walk-forward behavior:
+
+- Uses persisted records only.
+- Runs the normal backtest replay for each inclusive rolling window.
+- Returns each window's full backtest response.
+- Aggregates evaluated prediction counts, resolved outcome counts, EV recommendation counts, paper-trade counts, paper PnL totals, weighted average Brier score, weighted average log loss, and weighted average win rate.
+- Adds interpretation limits when windows overlap, outcomes are sparse, or some windows have no resolved predictions.
+
+If `step_days` is smaller than `window_days`, some evaluated records can appear
+in more than one window. Treat aggregate counts as rolling-window counts rather
+than unique prediction counts.
 
 Current behavior:
 
@@ -886,7 +919,7 @@ POST /paper-runner/run-once
 Content-Type: application/json
 
 {
-  "keywords": ["rain", "weather", "precipitation"],
+  "keywords": ["rain", "precipitation", "snow"],
   "discovery_limit": 25,
   "process_limit": 10,
   "max_trades": 3,
@@ -917,7 +950,7 @@ POST /paper-runner/rehearsal
 Content-Type: application/json
 
 {
-  "keywords": ["rain", "weather", "precipitation"],
+  "keywords": ["rain", "precipitation", "snow"],
   "discovery_limit": 25,
   "process_limit": 10,
   "max_trades": 3,

@@ -52,7 +52,9 @@ Expected:
 
 ## Frontend Dashboard
 
-The first dashboard displays recent market workflow status, compact source diagnostics, compact latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open paper trades, and recent public paper-runner history from `GET /dashboard/summary`. Recoverable public price-refresh failures are labeled as `using stored price` only when stale fallback is explicitly enabled; otherwise they appear as `fresh price required`. It includes a `Run Paper Demo` button that calls `POST /demo/paper-workflow` to run a deterministic mock/fixture workflow and create a simulated paper trade. It also includes a `Run Public Dry Run` button that calls `POST /paper-runner/run-once` with `dry_run: true`, so public discovery and scoring can be inspected without creating trades. It does not expose live trading.
+The frontend paper-trading workspace displays recent market workflow status, compact source diagnostics, latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open and historical paper trades, resolved outcome logs, and recent public paper-runner history. Recoverable public price-refresh failures are labeled as `using stored price` only when stale fallback is explicitly enabled; otherwise they appear as `fresh price required`.
+
+The run console can call `POST /demo/paper-workflow` for a deterministic mock/fixture paper trade, or `POST /paper-runner/run-once` for a guarded public pass with dry-run, max-trade, quantity, liquidity, and spread controls. Dry-run is the default public mode in the UI. Disabling it creates simulated paper trades only; the frontend does not expose live trading.
 
 Start FastAPI first, then run the frontend from a second terminal:
 

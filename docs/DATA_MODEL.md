@@ -98,6 +98,7 @@ Design note:
 
 - Price snapshots should not be overwritten. Strategy evaluation should link to the specific snapshot it used.
 - Market discovery is the primary source of price snapshots. Mock discovery stores deterministic demo prices, and public-source discovery stores normalized source prices when fields are available.
+- Polymarket-style normalization recognizes common Gamma and CLOB liquidity/volume fields such as `liquidityNum`, `volumeNum`, `liquidityClob`, `volumeClob`, and `volume24hrClob` so public collection diagnostics preserve useful market-depth context even when payload shapes vary.
 - `POST /markets/{market_id}/price-snapshots/refresh` creates a new snapshot from a fresh public source payload for Polymarket-sourced markets, and from the stored raw source payload for manually seeded or non-public markets.
 - Refresh attempts update the parent market's `source_diagnostics` so unsupported or partial price payloads are inspectable even when no new snapshot can be created.
 - Market parsing does not create demo price snapshots. Price records should come from discovery or an explicit refresh path so strategy decisions retain source provenance.

@@ -67,8 +67,21 @@ export type PaperTrade = {
   exit_time: string | null;
   pnl: number | null;
   status: string;
+  signal_snapshot_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ResolvedOutcome = {
+  id: number;
+  market_id: number;
+  actual_outcome: "YES" | "NO";
+  actual_value: number | null;
+  actual_unit: string | null;
+  resolution_source: string | null;
+  resolved_at: string | null;
+  raw_json: Record<string, unknown> | null;
+  created_at: string;
 };
 
 export type CalibrationBucket = {
@@ -148,6 +161,8 @@ export type PaperRunnerRunResult = PaperRunnerRun & {
   created: number;
   updated: number;
   price_snapshots_created: number;
+  actionable_recommendations: number;
+  expected_paper_trades: number;
   report: Record<string, unknown> | null;
 };
 
@@ -165,6 +180,15 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
 
 export async function fetchHealth(): Promise<HealthStatus> {
   return readJson<HealthStatus>("/health");
+}
+
+export async function fetchPaperTrades(status?: string): Promise<PaperTrade[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}&limit=100` : "?limit=100";
+  return readJson<PaperTrade[]>(`/paper-trades${query}`);
+}
+
+export async function fetchResolvedOutcomes(): Promise<ResolvedOutcome[]> {
+  return readJson<ResolvedOutcome[]>("/backtests/resolved-outcomes?limit=100");
 }
 
 export async function runPaperWorkflow(): Promise<PaperWorkflowResult> {
@@ -185,6 +209,28 @@ export async function runPublicPaperDryRun(): Promise<PaperRunnerRunResult> {
       quantity: 1,
       min_liquidity: 100,
       max_spread: 0.15,
+    }),
+  });
+}
+
+export type PublicPaperRunOptions = {
+  dryRun: boolean;
+  maxTrades: number;
+  quantity: number;
+  minLiquidity: number;
+  maxSpread: number;
+};
+
+export async function runPublicPaperPass(options: PublicPaperRunOptions): Promise<PaperRunnerRunResult> {
+  return readJson<PaperRunnerRunResult>("/paper-runner/run-once", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dry_run: options.dryRun,
+      max_trades: options.maxTrades,
+      quantity: options.quantity,
+      min_liquidity: options.minLiquidity,
+      max_spread: options.maxSpread,
     }),
   });
 }

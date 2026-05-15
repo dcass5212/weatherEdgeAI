@@ -422,6 +422,7 @@ Invoke-RestMethod `
 - `docs/TRADING_MODES.md`: paper, live, and read-only mode rules.
 - `docs/LIVE_TRADING_SAFETY.md`: controls required before live execution.
 - `docs/BACKTESTING_SPEC.md`: replay, metrics, and evidence requirements.
+- `docs/MODEL_TRAINING_WORKFLOW.md`: baseline-read-to-trained-logistic workflow.
 - `docs/PAPER_RUN_EVALUATION.md`: multi-day paper-run setup, outcome resolution, and interpretation runbook.
 
 ## Current Scope
@@ -433,15 +434,15 @@ V1 starts with precipitation threshold markets, such as:
 
 The current backend includes SQLAlchemy persistence models, Pydantic response schemas, mock and public-style market discovery, a precipitation market parser, forecast snapshots, a baseline precipitation probability model, EV strategy evaluation, simulated paper trades, resolved outcomes, and backtest replay metrics.
 
-Market discovery now uses the public Polymarket-style Gamma API by default through `POST /markets/discover`. Public discovery searches Gamma `public-search` by keyword first, deduplicates event results, expands child markets, skips inactive or closed child markets, and falls back to the active events listing when search returns no candidates. For local demos or tests without network access, pass `"source": "mock"` in the request body.
+Market discovery now uses the public Polymarket-style Gamma API by default through `POST /markets/discover`. Public discovery searches Gamma `public-search` by keyword first, with default keywords biased toward V1 precipitation and weather-measurement terms instead of the broad `weather` query that can over-collect space-weather event-count markets. It deduplicates event results, expands child markets, skips inactive or closed child markets, and falls back to the active events listing when search returns no candidates. For local demos or tests without network access, pass `"source": "mock"` in the request body.
 
 Market detail reads include a computed `workflow_status` object that shows completed pipeline steps and the next recommended backend action, such as `create_forecast`, `run_prediction`, or `evaluate_strategy`. The same detail response exposes the latest parsed market, price snapshot, forecast snapshot, prediction, EV recommendation, and paper trade when present so the paper-trading chain can be inspected from one endpoint.
 
-`GET /dashboard/summary` provides a frontend-ready summary with recent market workflow rows, compact latest signal values, paper-buy opportunities, open paper trades, and a compact backtest/calibration summary. It does not refresh external data or create execution records.
+`GET /dashboard/summary` provides a frontend-ready summary with recent market workflow rows, compact latest signal values, paper-buy opportunities, open paper trades, recent runner history, and a compact backtest/calibration summary. It does not refresh external data or create execution records.
 
-The `frontend/` app is a Vite + React dashboard for that summary endpoint. It shows the market pipeline, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, calibration buckets, paper opportunities, open paper trades, and recent public paper-runner history. It has a `Run Paper Demo` button backed by `POST /demo/paper-workflow`, which uses only mock discovery, fixture forecasts, baseline modeling, EV evaluation, and simulated paper trades. It also has a `Run Public Dry Run` button backed by `POST /paper-runner/run-once` with `dry_run: true`, so reviewers can inspect public-market validation counts, skips, and errors without creating trades. It does not expose live-trading controls.
+The `frontend/` app is a Vite + React paper-trading workspace. It shows the market pipeline, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, calibration buckets, paper opportunities, open and historical paper trades, resolved outcome logs, and recent public paper-runner history. Its run console can trigger the deterministic `POST /demo/paper-workflow` flow or a guarded public `POST /paper-runner/run-once` pass with dry-run, trade cap, quantity, liquidity, and spread controls. Public runs remain paper-only, and the UI does not expose live-trading controls.
 
-Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh Gamma market payloads, optionally enrich them with public CLOB market information, and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, liquidity, volume, status, and resolution fields without enabling authenticated trading.
+Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh Gamma market payloads, optionally enrich them with public CLOB market information, and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, CLOB-style liquidity/volume fields, status, and resolution fields without enabling authenticated trading.
 
 Market parsing does not create demo price snapshots. Strategy evaluation depends on price records from market discovery or the explicit price refresh endpoint so recommendations can be traced back to source payloads.
 
@@ -450,6 +451,7 @@ Forecast snapshots now use Open-Meteo through `POST /weather/forecast/{parsed_ma
 Interval/range precipitation contracts remain opt-in for paper-runner processing through `PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS=true`, `--allow-interval-contracts`, or the `allow_interval_contracts` API field.
 
 Backtesting now supports persisted predictions evaluated against one selected resolved outcome per market, plus a deterministic seed-fixture replay. Reports include prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, sample-size notes, sample-size gates, baseline comparisons, coverage diagnostics, EV recommendation count, paper-trade count, gross paper PnL, fee and slippage costs, net settlement PnL, paper ROI, and max drawdown.
+`POST /backtests/walk-forward` runs the same persisted-record replay across rolling date windows and returns per-window backtest responses plus aggregate weighted Brier score, log loss, win rate, paper PnL totals, and sparse/overlapping-window interpretation limits.
 Resolved outcomes now settle open simulated paper trades for the same market by default using binary side payouts. This remains paper-only and does not create live execution records.
 
 Observed weather outcomes can be resolved from Open-Meteo archive data for parsed precipitation markets. The resolver can also use a credential-gated NOAA/NCEI CDO daily `PRCP` client when `NOAA_CDO_TOKEN` is configured. NOAA is optional, mocked in tests, and not required for local demos.
@@ -491,6 +493,7 @@ See `docs/API_WORKFLOWS.md` and `docs/DATA_SOURCES.md` for setup, failure modes,
 - `GET /paper-runner/runs/{run_id}`
 - `GET /paper-runner/diagnostics`
 - `POST /backtests/run`
+- `POST /backtests/walk-forward`
 - `POST /backtests/resolved-outcomes`
 - `POST /backtests/resolved-outcomes/resolve-weather`
 - `GET /backtests/resolved-outcomes/eligibility-preview`

@@ -225,6 +225,29 @@ def test_source_diagnostics_report_nested_stats_without_price_fields() -> None:
     assert diagnostics["unsupported_reasons"] == ["no_supported_price_fields", "missing_binary_yes_no_prices"]
 
 
+def test_normalize_price_snapshot_from_clob_liquidity_and_volume_fields() -> None:
+    raw_market = {
+        "id": "gamma-clob-stats-weather",
+        "question": "Will New York City get more than 1 inch of rain tomorrow?",
+        "outcomes": '["Yes", "No"]',
+        "outcomePrices": '["0.49", "0.51"]',
+        "liquidityClob": 1021.74987,
+        "volume24hrClob": 215.93647,
+    }
+
+    snapshot = normalize_price_snapshot(raw_market)
+    diagnostics = build_source_diagnostics(raw_market, snapshot)
+
+    assert snapshot is not None
+    assert snapshot.yes_price == 0.49
+    assert snapshot.no_price == 0.51
+    assert snapshot.liquidity == 1021.74987
+    assert snapshot.volume == 215.93647
+    assert diagnostics["price_status"] == "supported"
+    assert diagnostics["capabilities"]["liquidity"] is True
+    assert diagnostics["capabilities"]["volume"] is True
+
+
 def test_source_diagnostics_report_non_binary_outcomes() -> None:
     raw_market = _fixture("gamma_non_binary_outcomes.json")
 
@@ -415,6 +438,46 @@ async def test_discovery_falls_back_to_active_events_when_public_search_is_empty
     assert markets[0].source_market_id == "fallback-rain"
     assert markets[0].price_snapshot is not None
     assert markets[0].price_snapshot.yes_price == 0.52
+
+
+@pytest.mark.anyio
+async def test_default_discovery_keywords_prioritize_precipitation_queries() -> None:
+    queries: list[str] = []
+
+    class FakeClient:
+        async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
+            queries.append(query)
+            if query == "rain":
+                return [
+                    {
+                        "id": "rain-event",
+                        "title": "Rain markets",
+                        "markets": [
+                            {
+                                "id": "rain-market",
+                                "question": "Will New York City get more than 1 inch of rain tomorrow?",
+                                "outcomes": '["Yes", "No"]',
+                                "outcomePrices": '["0.41", "0.59"]',
+                                "active": True,
+                                "closed": False,
+                            }
+                        ],
+                    }
+                ]
+            return []
+
+        async def fetch_active_events(self) -> list[dict]:
+            raise AssertionError("active event fallback should not run when search returns candidates")
+
+    markets = await MarketDiscoveryService(client=FakeClient()).discover_weather_markets(
+        source="polymarket",
+        keywords=None,
+        limit=1,
+    )
+
+    assert queries == ["rain"]
+    assert len(markets) == 1
+    assert markets[0].source_market_id == "rain-market"
 
 
 @pytest.mark.anyio

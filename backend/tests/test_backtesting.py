@@ -11,7 +11,8 @@ from app.backtesting.outcome_resolver import (
     resolve_weather_outcome_for_parsed_market,
 )
 from app.backtesting.backtest_runner import BacktestRunner
-from app.backtesting.schemas import BacktestRunRequest
+from app.backtesting.schemas import BacktestRunRequest, WalkForwardBacktestRequest
+from app.backtesting.walk_forward import WalkForwardBacktestRunner
 from app.db.models import EVRecommendation, Market, ParsedMarket, PaperTrade, Prediction, ResolvedOutcome, utc_now
 
 
@@ -1002,6 +1003,158 @@ def test_backtest_route_can_seed_fixture_replay(client: TestClient) -> None:
     assert body["calibration_buckets"][3]["count"] == 2
     assert body["calibration_buckets"][3]["average_predicted_probability"] == 0.675
     assert body["calibration_buckets"][3]["observed_yes_rate"] == 0.5
+
+
+def test_walk_forward_backtest_slices_windows_and_aggregates_metrics(db_session: Session) -> None:
+    first_market = Market(
+        source="test",
+        source_market_id="walk-forward-1",
+        question="Will New York City get more than 1 inch of rain on May 1?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    second_market = Market(
+        source="test",
+        source_market_id="walk-forward-2",
+        question="Will Chicago get less than 1 inch of rain on May 8?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    db_session.add_all([first_market, second_market])
+    db_session.flush()
+    first_prediction = Prediction(
+        market_id=first_market.id,
+        model_version="baseline_precip_v1",
+        p_yes=0.75,
+        p_no=0.25,
+        confidence="medium",
+    )
+    second_prediction = Prediction(
+        market_id=second_market.id,
+        model_version="baseline_precip_v1",
+        p_yes=0.25,
+        p_no=0.75,
+        confidence="medium",
+    )
+    db_session.add_all([first_prediction, second_prediction])
+    db_session.flush()
+    db_session.add_all(
+        [
+            EVRecommendation(
+                prediction_id=first_prediction.id,
+                market_price_yes=0.5,
+                market_price_no=0.5,
+                recommendation="PAPER_BUY_YES",
+            ),
+            EVRecommendation(
+                prediction_id=second_prediction.id,
+                market_price_yes=0.5,
+                market_price_no=0.5,
+                recommendation="WATCH",
+            ),
+            ResolvedOutcome(
+                market_id=first_market.id,
+                actual_outcome="YES",
+                actual_value=1.3,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 2, 12, tzinfo=timezone.utc),
+            ),
+            ResolvedOutcome(
+                market_id=second_market.id,
+                actual_outcome="NO",
+                actual_value=0.2,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 8, 12, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = WalkForwardBacktestRunner(db_session).run(
+        WalkForwardBacktestRequest(
+            start_date="2026-05-01",
+            end_date="2026-05-10",
+            model_version="baseline_precip_v1",
+            window_days=5,
+            step_days=5,
+        )
+    )
+
+    assert result.status == "completed"
+    assert len(result.windows) == 2
+    assert result.windows[0].start_date.isoformat() == "2026-05-01"
+    assert result.windows[0].end_date.isoformat() == "2026-05-05"
+    assert result.windows[0].backtest.num_predictions == 1
+    assert result.windows[1].start_date.isoformat() == "2026-05-06"
+    assert result.windows[1].end_date.isoformat() == "2026-05-10"
+    assert result.windows[1].backtest.num_predictions == 1
+    assert result.aggregate.window_count == 2
+    assert result.aggregate.completed_window_count == 2
+    assert result.aggregate.no_resolved_window_count == 0
+    assert result.aggregate.total_evaluated_predictions == 2
+    assert result.aggregate.total_resolved_outcomes == 2
+    assert result.aggregate.total_ev_recommendations == 2
+    assert result.aggregate.average_brier_score == 0.0625
+    assert result.aggregate.average_win_rate == 1.0
+
+
+def test_walk_forward_backtest_route_reports_empty_windows(client: TestClient, db_session: Session) -> None:
+    market = Market(
+        source="test",
+        source_market_id="walk-forward-route-1",
+        question="Will New York City get more than 1 inch of rain on May 5?",
+        category="weather",
+        active=False,
+        closed=True,
+    )
+    db_session.add(market)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Prediction(
+                market_id=market.id,
+                model_version="baseline_precip_v1",
+                p_yes=0.8,
+                p_no=0.2,
+                confidence="medium",
+            ),
+            ResolvedOutcome(
+                market_id=market.id,
+                actual_outcome="YES",
+                actual_value=1.4,
+                actual_unit="inch",
+                resolution_source="test_fixture",
+                resolved_at=datetime(2026, 5, 8, 12, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/backtests/walk-forward",
+        json={
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-10",
+            "model_version": "baseline_precip_v1",
+            "window_days": 5,
+            "step_days": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["aggregate"]["window_count"] == 2
+    assert body["aggregate"]["completed_window_count"] == 1
+    assert body["aggregate"]["no_resolved_window_count"] == 1
+    assert body["aggregate"]["total_evaluated_predictions"] == 1
+    assert body["windows"][0]["backtest"]["status"] == "no_resolved_predictions"
+    assert body["windows"][1]["backtest"]["status"] == "completed"
+    assert "Some windows had no resolved predictions" in body["interpretation_limits"][-1]
 
 
 def test_evidence_report_summarizes_backtest_and_limits(client: TestClient, db_session: Session) -> None:

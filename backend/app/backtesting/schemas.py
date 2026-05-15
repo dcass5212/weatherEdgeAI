@@ -12,6 +12,16 @@ class BacktestRunRequest(BaseModel):
     paper_slippage_rate: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class WalkForwardBacktestRequest(BaseModel):
+    start_date: date
+    end_date: date
+    model_version: str = "baseline_precip_v1"
+    window_days: int = Field(default=7, gt=0, le=366)
+    step_days: int = Field(default=1, gt=0, le=366)
+    paper_fee_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    paper_slippage_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class ResolvedOutcomeCreate(BaseModel):
     market_id: int
     actual_outcome: str = Field(pattern="^(YES|NO)$")
@@ -150,3 +160,40 @@ class BacktestRunResponse(BaseModel):
     paper_settlement_note: str | None = None
     status: str
     source: str = "persisted_records"
+
+
+class WalkForwardWindowResult(BaseModel):
+    index: int
+    start_date: date
+    end_date: date
+    backtest: BacktestRunResponse
+
+
+class WalkForwardBacktestAggregate(BaseModel):
+    window_count: int = 0
+    completed_window_count: int = 0
+    no_resolved_window_count: int = 0
+    total_evaluated_predictions: int = 0
+    total_resolved_outcomes: int = 0
+    total_ev_recommendations: int = 0
+    total_paper_trades: int = 0
+    average_brier_score: float | None = None
+    average_log_loss: float | None = None
+    average_win_rate: float | None = None
+    paper_gross_pnl: float | None = None
+    paper_fee_cost: float | None = None
+    paper_slippage_cost: float | None = None
+    paper_total_pnl: float | None = None
+    worst_max_drawdown: float | None = None
+
+
+class WalkForwardBacktestResponse(BaseModel):
+    model_version: str
+    start_date: date
+    end_date: date
+    window_days: int
+    step_days: int
+    status: str
+    aggregate: WalkForwardBacktestAggregate
+    windows: list[WalkForwardWindowResult] = Field(default_factory=list)
+    interpretation_limits: list[str] = Field(default_factory=list)

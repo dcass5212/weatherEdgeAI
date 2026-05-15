@@ -2,11 +2,54 @@
 
 All notable Codex-assisted changes to WeatherEdge AI are documented here after each implementation prompt.
 
+## 2026-05-13
+
+### Added
+
+- Added persisted-record walk-forward backtesting through `POST /backtests/walk-forward`, including rolling window generation, per-window replay responses, aggregate weighted Brier score, log loss, win rate, paper PnL totals, and interpretation limits for sparse or overlapping windows.
+- Added focused backend tests for walk-forward window slicing, aggregate metrics, empty-window reporting, and the API contract.
+
+### Changed
+
+- Updated README, API workflow, backtesting spec, and roadmap documentation for the implemented walk-forward replay workflow and revised near-term priorities.
+
+### Verified
+
+- Ran `.\.venv\Scripts\pytest.exe tests\test_backtesting.py -q`; all 26 focused backtesting tests passed.
+- Ran `.\.venv\Scripts\python.exe -m py_compile app\backtesting\schemas.py app\backtesting\backtest_runner.py app\backtesting\walk_forward.py app\api\routes_backtests.py`; compilation succeeded.
+- Ran `.\.venv\Scripts\pytest.exe -q`; all 187 backend tests passed.
+
+## 2026-05-12
+
+### Added
+
+- Added Polymarket collection coverage for CLOB-style `liquidityClob`, `volumeClob`, and `volume24hrClob` fields during price snapshot normalization.
+- Added focused tests proving default public discovery starts with precipitation-oriented keywords and that CLOB-style liquidity/volume fields populate source diagnostics.
+- Added a polished frontend paper-trading workspace with a run console for deterministic demo paper trades and guarded public paper-runner passes.
+- Added frontend reads for `GET /paper-trades`, `GET /paper-trades?status=OPEN`, and `GET /backtests/resolved-outcomes` so the UI can show open trades, historical paper trades, and outcome logs.
+- Added public paper-run controls for dry-run mode, max simulated trades, quantity, minimum liquidity, and maximum spread while keeping live-trading controls out of the UI.
+- Added `VITE_API_PROXY_TARGET` support to the Vite config so local frontend sessions can point at an alternate backend port when `8000` is occupied.
+
+### Changed
+
+- Changed default public market discovery keywords to favor V1 precipitation and weather-measurement terms, reducing noise from broad `weather` search results such as space-weather event-count markets.
+- Updated README, API workflow, roadmap, and data-model docs for the refined Polymarket collection behavior.
+- Reworked the frontend layout around paper-trading operations, paper ledger totals, market workflow inspection, paper-run history, paper opportunities, paper trades, and resolved outcome logs.
+- Updated `README.md`, `docs/API_WORKFLOWS.md`, `docs/LOCAL_DEMO.md`, `docs/DEMO_PLAN.md`, and `docs/ROADMAP.md` to describe the implemented frontend paper-trading workspace.
+
+### Verified
+
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_discovery.py`; all 28 market-discovery tests passed.
+- Ran `npm run build` in `frontend`; TypeScript and Vite production build completed successfully.
+- Started the frontend dev server and verified `http://127.0.0.1:5173` returned HTTP 200.
+- Started a clean SQLite-backed FastAPI instance on `http://127.0.0.1:8001` and a Vite frontend on `http://127.0.0.1:5174`; verified both the page and `/api/dashboard/summary` returned HTTP 200.
+
 ## 2026-05-10
 
 ### Added
 
 - Added a README section explaining how to run the prediction, strategy, paper-runner, and backtest workflow with different model versions.
+- Added `docs/MODEL_TRAINING_WORKFLOW.md` documenting the baseline-read, outcome-resolution, dataset-building, offline logistic-training, replay, and model-promotion process.
 - Added `logistic_precip_v1`, a fixed-coefficient logistic regression precipitation model with explicit forecast-vs-threshold features, unit conversion for inch/millimeter thresholds, and versioned prediction output.
 - Added a prediction model registry and `model_version` selection for `POST /predictions/run/{market_id}`, keeping `baseline_precip_v1` as the default.
 - Added `model_version` selection to the public paper-runner API and CLI so dry runs can compare `baseline_precip_v1` and `logistic_precip_v1` without changing paper-mode defaults.

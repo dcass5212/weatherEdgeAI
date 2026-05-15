@@ -13,7 +13,7 @@ from typing import Any
 from app.markets.polymarket_client import PolymarketClient, PublicMarketDataError
 
 
-WEATHER_KEYWORDS = ("weather", "rain", "snow", "temperature", "precipitation", "inch")
+WEATHER_KEYWORDS = ("rain", "rainfall", "precipitation", "snow", "temperature", "inch", "mm")
 
 
 @dataclass(frozen=True)
@@ -408,8 +408,24 @@ def normalize_price_snapshot(raw: dict[str, Any]) -> DiscoveredPriceSnapshot | N
 
     nested_stats = _dict_at(raw, "stats", "marketStats", "market_stats")
     stat_sources = (raw,) if nested_stats is None else (raw, nested_stats)
-    liquidity = _first_float_from_dicts(stat_sources, ("liquidity", "liquidityNum", "liquidity_num"))
-    volume = _first_float_from_dicts(stat_sources, ("volume", "volumeNum", "volume_num"))
+    liquidity = _first_float_from_dicts(
+        stat_sources,
+        ("liquidity", "liquidityNum", "liquidity_num", "liquidityClob", "liquidity_clob"),
+    )
+    volume = _first_float_from_dicts(
+        stat_sources,
+        (
+            "volume",
+            "volumeNum",
+            "volume_num",
+            "volumeClob",
+            "volume_clob",
+            "volume24hr",
+            "volume24hrClob",
+            "volume_24hr",
+            "volume_24hr_clob",
+        ),
+    )
     timestamp = (
         _parse_datetime(raw.get("priceTimestamp") or raw.get("price_timestamp"))
         or _parse_datetime(raw.get("timestamp"))

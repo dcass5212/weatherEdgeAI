@@ -30,10 +30,11 @@ Implemented:
 - Market, weather, prediction, strategy, paper-trade, and backtest route modules.
 - Mock market discovery and a Polymarket-style public discovery path.
 - Keyword-based public discovery through Gamma `public-search`, with event deduplication, child-market expansion, inactive/closed child filtering, and active-event fallback.
+- Default public discovery keywords now favor V1 precipitation/weather-measurement terms over the broad `weather` query to reduce collection noise from space-weather event-count markets.
 - Idempotent persistence for discovered market records.
 - Discovery-time market price snapshot persistence.
 - `POST /markets/{market_id}/price-snapshots/refresh` for read-only price snapshot refresh from fresh public source payloads on Polymarket markets, with stored-payload support for manual or fixture-backed markets.
-- Source-aware price normalization for mock, common Polymarket-style market fields, token outcome fields, CLOB token price maps, and orderbook-like bid/ask payloads.
+- Source-aware price normalization for mock, common Polymarket-style market fields, token outcome fields, CLOB token price maps, orderbook-like bid/ask payloads, and CLOB-style liquidity/volume fields.
 - Market-level source diagnostics for supported, partial, and unsupported public market payloads.
 - Public market-data request retry handling with persisted diagnostics for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts during price refresh.
 - Public paper runner can optionally fall back to the latest stored discovery-time binary price snapshot when a read-only public price refresh fails, with `stale_supported` diagnostics preserving the provider error and fallback snapshot ID only when stale fallback is explicitly enabled.
@@ -69,6 +70,7 @@ Implemented:
 - NOAA/NCEI CDO-style daily `PRCP` observed precipitation normalization for fixture/manual provider payloads with explicit units.
 - Credential-gated NOAA/NCEI CDO daily precipitation client behind the observed-outcome resolver, with mocked tests and Open-Meteo remaining the default demo path.
 - Minimal backtest replay over persisted resolved predictions, selecting one latest resolved outcome per market inside the requested evaluation window.
+- Walk-forward backtest replay over rolling persisted-record date windows, with per-window backtest responses, aggregate weighted probability metrics, paper PnL totals, and overlap/sparse-sample interpretation limits.
 - Deterministic seed-fixture backtest replay for local demos and tests.
 - Backtest win rate, Brier score, log loss, calibration buckets, sample-size notes, sample-size gates, and baseline comparisons.
 - Backtest EV recommendation counts and paper-trade PnL, ROI, and max-drawdown summaries.
@@ -89,7 +91,7 @@ Partially implemented:
 - Market detail reads now expose the full latest paper-trading inspection chain, including forecast snapshot and paper trade records.
 - A first frontend contract exists through `GET /dashboard/summary`, keeping the dashboard read-only and backed by existing paper-trading records with compact source diagnostics, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, and calibration values.
 - Location resolution has a deterministic fixture geocoder by default, plus an opt-in Open-Meteo geocoding provider for broader manual coverage.
-- Backtesting has an initial replay path for persisted predictions evaluated against one selected outcome per market, plus seed-fixture support, calibration buckets, sample-size reporting, sample-size gates, baseline comparisons, coverage diagnostics, and paper-trade result summaries.
+- Backtesting has an initial replay path for persisted predictions evaluated against one selected outcome per market, walk-forward replay over rolling date windows, plus seed-fixture support, calibration buckets, sample-size reporting, sample-size gates, baseline comparisons, coverage diagnostics, and paper-trade result summaries.
 - Multi-day paper-run evaluation now has outcome batch resolution, paper-trade settlement, a compact evidence report, and a pre-run smoke command.
 
 Known gaps:
@@ -98,7 +100,7 @@ Known gaps:
 - Parser failure detail exists for common unsupported cases, and one-sided inch/mm threshold coverage has expanded from real public dry-run misses. Interval contracts such as `between 2 and 3 inches` are supported only behind an explicit experimental paper-runner/API/CLI toggle; the baseline is simple and should not be treated as proven performance.
 - Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including nested orderbook payloads, nested stats-only payloads, wrapped market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, empty orderbooks, and split fresh-price/stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
 - Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
-- Frontend UI has a dashboard with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, paper-trade inspection, recent public paper-runner history, a safe `Run Paper Demo` action, and a public `Run Public Dry Run` action that does not create trades. Broader workflow controls remain a planned follow-up.
+- Frontend UI has a paper-trading workspace with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, open and historical paper-trade inspection, resolved outcome logs, recent public paper-runner history, a safe `Run Paper Demo` action, and guarded public paper-run controls that default to dry-run but can create simulated paper trades. Live-trading controls are not exposed.
 - Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, exposes aggregated diagnostics for skipped markets and unsupported public price payloads, and only continues from stored discovery-time prices when refresh fails if stale fallback is explicitly enabled. It is not yet a daemon with alerting.
 
 ## Phase 1: Persistence Foundation
@@ -279,7 +281,7 @@ Portfolio value:
 
 Evidence-readiness follow-ups:
 
-- Add rolling or walk-forward backtests so evaluation is not tied to one static split.
+- Add rolling or walk-forward backtests so evaluation is not tied to one static split. Initial persisted-record walk-forward API is implemented.
 - Compare the baseline against simple controls such as market-implied probability and always-50% probability. Done for persisted replay rows with linked market prices.
 - Add fee and slippage assumptions to paper-trade settlement summaries so ROI is less naive. Done for backtest paper settlement with zero-cost defaults and explicit gross/cost/net fields.
 - Add explicit sample-size gates and stronger sample-size notes in API and dashboard outputs. Initial backtest and evidence-report gates are implemented.
@@ -375,7 +377,7 @@ Work:
 - Surface model evaluation context. Compact backtest metrics, paper replay metrics, calibration buckets, and sample-size notes are implemented through the dashboard summary contract.
 - Surface public paper-runner validation history. Recent run status, dry-run mode, workflow counts, skip reasons, and errors are implemented through the dashboard summary contract.
 - Keep the UI operational and data-dense, not marketing-focused. Initial pass follows this direction.
-- Add safe paper-workflow action buttons after the read-only dashboard is stable. Initial `Run Paper Demo` and `Run Public Dry Run` buttons are implemented; granular workflow controls remain planned.
+- Add safe paper-workflow action buttons after the read-only dashboard is stable. Implemented as a run console for deterministic demo trades and guarded public paper passes, with dry-run, max-trade, quantity, liquidity, and spread controls. The dashboard also reads paper-trade history and resolved outcome logs.
 
 Done when:
 
@@ -463,14 +465,13 @@ Portfolio value:
 ## Near-Term Recommended Order
 
 1. Run and document multi-day paper-market evidence loops with persisted public run history, batch outcome resolution, settled paper trades, and evidence reports.
-2. Add rolling or walk-forward backtests so evaluation is not tied to one static replay window.
-3. Improve observed-outcome provider quality, especially NOAA station-selection diagnostics, source uncertainty, and provider comparison where available.
-4. Evaluate `logistic_precip_v1` against `baseline_precip_v1`, market-implied probability, and always-50% with resolved outcomes; tune or train coefficients only after enough evaluated records exist.
-5. Continue improving real public market-data integration while preserving paper mode as default, especially captured fixture coverage for unsupported public payloads.
-6. Expand the dashboard to show evidence-report details and public paper-run diagnostics more directly.
-7. Add CI and operational polish, including backend tests, frontend build checks, structured runner logs, readiness checks, and failure-mode coverage.
-8. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
-9. Add real execution only after safety controls are implemented and tested.
+2. Improve observed-outcome provider quality, especially NOAA station-selection diagnostics, source uncertainty, and provider comparison where available.
+3. Evaluate `logistic_precip_v1` against `baseline_precip_v1`, market-implied probability, and always-50% with resolved outcomes; tune or train coefficients only after enough evaluated records exist.
+4. Continue improving real public market-data integration while preserving paper mode as default, especially captured fixture coverage for unsupported public payloads.
+5. Expand the dashboard to show evidence-report details, walk-forward backtest context, and public paper-run diagnostics more directly.
+6. Add CI and operational polish, including backend tests, frontend build checks, structured runner logs, readiness checks, and failure-mode coverage.
+7. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
+8. Add real execution only after safety controls are implemented and tested.
 
 ## Priority Rules
 

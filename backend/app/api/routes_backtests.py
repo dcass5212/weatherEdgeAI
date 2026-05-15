@@ -14,11 +14,14 @@ from app.backtesting.schemas import (
     OutcomeEligibilityPreviewResponse,
     ResolvedOutcomeCreate,
     ResolvedOutcomeRead,
+    WalkForwardBacktestRequest,
+    WalkForwardBacktestResponse,
     WeatherOutcomeBatchItem,
     WeatherOutcomeBatchResolveRequest,
     WeatherOutcomeBatchResolveResponse,
     WeatherOutcomeResolveRequest,
 )
+from app.backtesting.walk_forward import WalkForwardBacktestRunner
 from app.db.models import Market, ParsedMarket, ResolvedOutcome, utc_now
 from app.db.repositories import get_market, latest_parsed_market
 from app.db.session import get_db
@@ -52,6 +55,17 @@ def _completed_target_filter(now):
 def run_backtest(payload: BacktestRunRequest, db: Session = Depends(get_db)) -> BacktestRunResponse:
     try:
         return BacktestRunner(db).run(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/walk-forward", response_model=WalkForwardBacktestResponse)
+def run_walk_forward_backtest(
+    payload: WalkForwardBacktestRequest,
+    db: Session = Depends(get_db),
+) -> WalkForwardBacktestResponse:
+    try:
+        return WalkForwardBacktestRunner(db).run(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

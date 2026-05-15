@@ -59,6 +59,7 @@ Current initial implementation:
 - The observed-weather resolver can normalize NOAA/NCEI CDO-style daily `PRCP` records with explicit precipitation units.
 - `resolution_provider: "noaa_cdo_daily"` uses the credential-gated NOAA/NCEI CDO client when `NOAA_CDO_TOKEN` is configured. Missing credentials fail before any provider request.
 - `POST /backtests/run` replays persisted predictions against the selected resolved outcome for each market for a model version and date window.
+- `POST /backtests/walk-forward` slices a requested date range into rolling windows and runs the persisted-record replay for each window. It returns each window's normal backtest response plus aggregate evaluated-prediction counts, weighted average Brier score, weighted average log loss, weighted average win rate, paper PnL totals, and interpretation limits for sparse or overlapping windows.
 - `seed_fixtures: true` inserts and replays a deterministic small fixture history.
 - The initial report includes prediction count, resolved outcome count, win rate, Brier score, log loss, calibration buckets, a sample-size note, a sample-size gate, baseline comparisons, EV recommendation count, paper-trade count, gross paper PnL, fee and slippage costs, net paper PnL, paper ROI, and max drawdown.
 - Paper-trade settlement accepts explicit `paper_fee_rate` and `paper_slippage_rate` assumptions on the backtest request. Both default to `0.0` for deterministic demo compatibility. Reports expose gross PnL, fee cost, slippage cost, net PnL, ROI, max drawdown, and a settlement note so ROI is not presented without cost assumptions.
@@ -84,6 +85,43 @@ Backtest reports should include:
 - Coverage diagnostics. Implemented for missing outcomes, unmatched outcomes, and model-version exclusions.
 - Baseline comparisons. Implemented for the model probability, always-50% probability, and market-implied probability when evaluated predictions have linked market YES prices.
 - Sample-size gate. Implemented as `insufficient_sample`, `early_signal`, or `reviewable_sample`.
+
+## Walk-Forward Replay
+
+Walk-forward replay is intended for model-review workflow quality, not for
+performance claims from small samples. The endpoint currently uses persisted
+records only; seed fixtures remain part of the single-window `/backtests/run`
+demo path.
+
+Request:
+
+```http
+POST /backtests/walk-forward
+Content-Type: application/json
+
+{
+  "start_date": "2026-05-01",
+  "end_date": "2026-05-31",
+  "model_version": "baseline_precip_v1",
+  "window_days": 7,
+  "step_days": 1,
+  "paper_fee_rate": 0.0,
+  "paper_slippage_rate": 0.0
+}
+```
+
+Current behavior:
+
+- Builds inclusive date windows from `start_date` through `end_date`.
+- Runs the same persisted-record backtest used by `/backtests/run` for each window.
+- Includes partial final windows when the requested range does not divide evenly.
+- Limits requests to 500 generated windows.
+- Aggregates metrics across windows using evaluated-prediction-weighted averages for Brier score, log loss, and win rate.
+- Reports interpretation limits when windows overlap, outcomes are sparse, or some windows have no resolved predictions.
+
+When `step_days` is smaller than `window_days`, records can appear in multiple
+windows. In that case aggregate counts are rolling-window counts, not unique
+market or unique prediction counts.
 
 ## Calibration Buckets
 

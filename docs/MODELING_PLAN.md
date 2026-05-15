@@ -236,6 +236,8 @@ This loop is required before treating any upgraded model as a candidate for even
 ## Backtesting Requirements
 
 See `BACKTESTING_SPEC.md` for the implementation-level replay and reporting specification.
+See `MODEL_TRAINING_WORKFLOW.md` for the step-by-step process from a frozen
+baseline read to a trained logistic regression model.
 
 A useful backtest needs:
 
