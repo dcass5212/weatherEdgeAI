@@ -74,7 +74,7 @@ Implications:
 
 ## Decision 5: Rule-Based Parser First
 
-The initial parser is regex/rule-based and focused on precipitation threshold markets.
+The initial parser is regex/rule-based. It started with precipitation threshold markets and now includes first-pass daily high/low temperature bucket markets.
 
 Rationale:
 
@@ -85,7 +85,7 @@ Rationale:
 
 Tradeoff:
 
-- Coverage is limited but expanding through fixture-backed cases. The parser will need continued real-market failure capture or a fallback strategy for broader market wording.
+- Coverage is limited but expanding through fixture-backed cases. Temperature bucket support intentionally starts with common daily high/low range and threshold wording; broader market wording still needs captured fixtures or a fallback strategy.
 
 Future revisit:
 
@@ -104,6 +104,7 @@ Rationale:
 Tradeoff:
 
 - Forecast quality and historical replay support may be limited for advanced backtesting. Normalization is deliberately defensive so malformed or partial provider payloads do not crash the workflow.
+- For started but not elapsed precipitation markets, paper evaluation now combines archive observations through yesterday with forecast precipitation for the remaining window. This expands public-market coverage while keeping elapsed markets in the observed-outcome/backtesting path.
 
 Future revisit:
 
@@ -122,11 +123,11 @@ Rationale:
 
 Tradeoff:
 
-- Default location coverage is intentionally limited. Broader coverage requires `GEOCODING_PROVIDER=open_meteo`, and provider failures are surfaced as external dependency errors rather than hidden.
+- Default location coverage is intentionally limited to common public/demo weather-market cities. Broader coverage requires `GEOCODING_PROVIDER=open_meteo`, and provider failures are surfaced as external dependency errors rather than hidden.
 
 ## Decision 7: Transparent Baseline Model First
 
-The initial precipitation model is a simple threshold-based baseline.
+The initial precipitation model is a simple threshold-based baseline. The first temperature bucket model follows the same transparent-baseline principle with point-forecast bucket probabilities.
 
 Rationale:
 

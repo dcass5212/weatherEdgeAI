@@ -28,6 +28,8 @@ FIXTURE_LOCATIONS = {
     "new york": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),
     "new york city": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),
     "nyc": GeocodedLocation(name="New York City", latitude=40.7128, longitude=-74.0060),
+    "seattle": GeocodedLocation(name="Seattle", latitude=47.6061, longitude=-122.3328),
+    "seoul": GeocodedLocation(name="Seoul", latitude=37.5665, longitude=126.9780),
 }
 
 

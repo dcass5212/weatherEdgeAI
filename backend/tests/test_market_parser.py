@@ -158,3 +158,36 @@ def test_interval_precipitation_contract_parses_when_enabled() -> None:
     assert result.threshold_value == 190
     assert result.interval_upper_value == 200
     assert result.threshold_unit == "mm"
+
+
+def test_parse_high_temperature_bucket_market() -> None:
+    result = parse_precipitation_market(
+        "Highest temperature in NYC on May 17 80-81F?",
+        reference_datetime=datetime(2026, 5, 16, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.success is True
+    assert result.location_name == "NYC"
+    assert result.metric == "temperature"
+    assert result.operator == "between"
+    assert result.threshold_value == 80
+    assert result.interval_upper_value == 81
+    assert result.threshold_unit == "F"
+    assert result.raw_parse_json == {"temperature_kind": "high"}
+    assert result.target_start is not None
+    assert result.target_start.date().isoformat() == "2026-05-17"
+
+
+def test_parse_low_temperature_or_lower_market() -> None:
+    result = parse_precipitation_market(
+        "Lowest temperature in London on May 17 10C or lower?",
+        reference_datetime=datetime(2026, 5, 16, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.success is True
+    assert result.location_name == "London"
+    assert result.metric == "temperature"
+    assert result.operator == "<="
+    assert result.threshold_value == 10
+    assert result.threshold_unit == "C"
+    assert result.raw_parse_json == {"temperature_kind": "low"}

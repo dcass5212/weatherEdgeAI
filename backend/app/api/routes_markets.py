@@ -378,6 +378,7 @@ async def parse_market(
         parser_version=result.parser_version,
         raw_parse_json={
             **result.model_dump(mode="json"),
+            **(result.raw_parse_json or {}),
             "geocoding": geocoded_location.__dict__ if geocoded_location else None,
         },
     )

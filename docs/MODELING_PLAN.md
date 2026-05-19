@@ -6,7 +6,7 @@ This document defines how WeatherEdge AI should estimate probabilities, evaluate
 
 ## V1 Modeling Scope
 
-V1 focuses on precipitation threshold markets.
+V1 focuses on precipitation threshold markets and now includes first-pass daily high/low temperature bucket support.
 
 Supported target shape:
 
@@ -24,6 +24,13 @@ Initial examples:
 
 The current parser and baseline model support one-sided precipitation thresholds: `>`, `>=`, `<`, and `<=`, with inch and millimeter thresholds. Interval contracts such as `between 2 and 3 inches` are available only behind an explicit experimental toggle for paper-runner research; they should not be treated as a proven model improvement.
 The parser extracts target windows for daily wording such as `tomorrow` and `on May 5`, plus month windows such as `in May`, because observed-outcome resolution and trade settlement require a completed target window.
+
+Temperature examples:
+
+- Highest temperature in NYC on May 17 80-81F?
+- Lowest temperature in London on May 17 10C or lower?
+
+Temperature buckets are represented as binary contracts over a range or threshold. They are early paper-research signals, not trained or calibrated evidence.
 
 ## Implemented Models
 
@@ -65,6 +72,26 @@ Purpose:
 - Establish an end-to-end prediction pipeline.
 - Provide a baseline for later model comparisons.
 - Keep behavior easy to explain in interviews.
+
+Additional implemented model version:
+
+```text
+baseline_temperature_bucket_v1
+```
+
+Current behavior:
+
+- Uses the parsed `temperature_kind` (`high` or `low`) to select forecast daily max or min temperature.
+- Converts Celsius and Fahrenheit when the forecast unit differs from the parsed market unit.
+- Gives modest YES probability when the point forecast falls inside a bucket range.
+- Reduces YES probability as the point forecast moves away from the bucket.
+- Supports simple `between`, `>=`, `<=`, and exact-temperature shapes.
+
+Limitations:
+
+- Uses a point forecast only; it does not yet model a full temperature distribution.
+- It is not trained or calibrated.
+- Observed temperature outcome resolution is still future work, so evidence reports should not treat this model as proven.
 
 Additional implemented model version:
 

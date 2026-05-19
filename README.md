@@ -201,8 +201,9 @@ Expected response:
 
 ## Run Frontend Dashboard
 
-The first frontend pass is a React dashboard backed by `GET /dashboard/summary`.
-It uses the Vite dev-server proxy at `/api`, so the FastAPI backend should be running on
+The frontend is a React paper-trading workspace backed by read-only inspection
+endpoints plus explicit paper-only run actions. It uses the Vite dev-server
+proxy at `/api`, so the FastAPI backend should be running on
 `http://127.0.0.1:8000`.
 
 ```powershell
@@ -339,69 +340,160 @@ Invoke-RestMethod `
   -Body '{"start_date":"2026-05-01","end_date":"2026-05-10","model_version":"logistic_precip_v1"}'
 ```
 
-## Run One Public-Market Paper Pass
+## Run The Paper Bot End To End
 
-After PostgreSQL is running and migrations are applied, run a guarded one-shot public-market paper pass:
+This is the public-market paper-trading demo path. It discovers current public
+weather markets, refreshes prices, parses supported weather questions, fetches
+Open-Meteo forecasts, runs the stored probability model, evaluates expected
+value, and creates simulated paper trades only within conservative caps.
 
-```powershell
-cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\paper_market_runner.py --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
-```
+The bot is paper-only. It does not call authenticated trading APIs, place real
+orders, sign transactions, mutate live positions, or create live execution
+records.
 
-For a no-trade rehearsal that still discovers markets and evaluates signals:
-
-```powershell
-cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal
-```
-
-Interval precipitation contracts such as `between 190-200mm` are off by default
-for the public paper runner. To include them in a manual research pass:
+### 1. Start The Local Database
 
 ```powershell
+cd C:\weatherEdgeAI
+docker compose up -d
+
 cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --allow-interval-contracts
+.\.venv\Scripts\alembic.exe upgrade head
 ```
 
-For a bounded overnight paper run:
-
-```powershell
-cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\paper_market_runner.py --interval-minutes 30 --max-hours 10 --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
-```
-
-The runner now requires fresh prices by default. To explicitly replay stored binary
-prices after a public refresh failure for research purposes, add
-`--allow-stale-price-fallback`.
-
-Before a longer paper run, run the readiness smoke checks:
+### 2. Run Readiness Checks
 
 ```powershell
 cd C:\weatherEdgeAI\backend
 .\.venv\Scripts\python.exe scripts\pre_run_smoke.py
 ```
 
-After a bounded run, resolve eligible completed markets, settle matching open
-paper trades, generate an evidence report, and write timestamped JSON research
-logs:
+The smoke check verifies paper-mode safety settings, database connectivity,
+workflow tables, seed-fixture backtesting, and paper-runner history access.
+
+### 3. Rehearse Without Creating Trades
 
 ```powershell
 cd C:\weatherEdgeAI\backend
-.\.venv\Scripts\python.exe scripts\research_maintenance.py --start-date 2026-05-01 --end-date 2026-05-10 --limit 100
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --min-liquidity 100 --max-spread 0.15
 ```
 
-The runner is paper-only. It uses public market data, Open-Meteo forecasts, stored model/EV logic, and simulated paper trades. It does not call authenticated trading APIs, place real orders, sign transactions, or create live execution records.
-Each runner pass now persists a `paper_runner_runs` record with the run configuration, counts, skip reasons, errors, and final status so automated paper-market validation remains inspectable after the process exits.
-`GET /paper-runner/diagnostics` summarizes recent public paper-run validation across runs, including skip-reason categories, source price status counts, unsupported public price reasons, and recent workflow/provider errors.
-`POST /backtests/resolved-outcomes/resolve-weather-batch` resolves eligible completed parsed precipitation markets from observed weather data and can settle matching open paper trades.
-`GET /backtests/resolved-outcomes/eligibility-preview` previews which parsed markets are ready for observed-outcome resolution without calling providers or writing records.
-`GET /evaluation/evidence-report` combines paper-runner counts, backtest metrics, baseline comparisons, sample-size gates, unresolved trade counts, and interpretation limits for multi-day paper-run review.
-The evidence report includes paper-trade lifecycle counts for recommended buy signals, recommended-but-not-traded signals, open trades, resolved trades, manually closed trades, unresolved trades, and unresolved trades past the target weather window.
-It also reports market-implied comparison coverage so a reviewer can see how much of the evaluated sample had linked market YES prices.
-The paper runner also applies configurable freshness guards for price snapshots, forecast snapshots, and started or elapsed target windows so stale or partial-window inputs are skipped before simulated trades are created. Public refresh failures do not fall back to stored prices unless `--allow-stale-price-fallback` is set explicitly.
-Conservative paper portfolio limits are enabled by default for local research: 5 open simulated trades, 25 total simulated exposure, 5 per market, and 10 per parsed location. These are intentionally small paper-mode limits, not live-trading risk controls.
-Every created paper trade stores a compact `signal_snapshot_json` so the entry can be explained later from the parsed target, forecast, model probability, market price, edge, liquidity, spread, recommendation reason, and runner config.
-Optional paper entry slippage is available through `PAPER_RUNNER_ENTRY_SLIPPAGE_RATE` and defaults to `0.0`; when enabled, paper trades preserve the quoted price in the signal snapshot and use the slipped fill as `entry_price`.
+Review the printed `actionable_recommendations`, `expected_paper_trades`,
+`skipped`, and `errors` fields. A rehearsal still discovers markets, refreshes
+prices, parses, forecasts, predicts, and evaluates EV, but it does not create
+paper trades.
+
+### 4. Run One Paper-Trading Pass
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+Each pass persists a `paper_runner_runs` record with the run configuration,
+counts, skip reasons, errors, and final status. Created paper trades include a
+compact `signal_snapshot_json` explaining the parsed target, forecast, model
+probability, market price, edge, liquidity, spread, recommendation reason, and
+runner config.
+
+### 5. Run Overnight Or Multi-Hour Validation
+
+Loop mode must include a stop condition, so an overnight run cannot continue
+indefinitely by accident:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --interval-minutes 30 --max-hours 10 --max-trades 3 --quantity 1 --min-liquidity 100 --max-spread 0.15
+```
+
+Use `--max-runs` instead of, or in addition to, `--max-hours` when you want a
+fixed number of passes.
+
+### 6. Resolve Outcomes And Generate Evidence
+
+After target weather windows have completed, run maintenance for the evaluation
+window you want to review:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\research_maintenance.py --start-date 2026-05-16 --end-date 2026-05-17 --limit 100
+```
+
+The maintenance script previews outcome eligibility, resolves eligible completed
+weather markets through Open-Meteo archive by default, settles matching open
+paper trades, generates an evidence report, and writes timestamped JSON logs
+under `backend/research_logs/`.
+
+### 7. Inspect The Run
+
+Start the backend if it is not already running:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+uvicorn app.main:app --reload
+```
+
+Useful review endpoints:
+
+```text
+GET /paper-runner/runs
+GET /paper-runner/diagnostics
+GET /evaluation/evidence-report?start_date=2026-05-16&end_date=2026-05-17&model_version=baseline_precip_v1
+GET /dashboard/summary
+```
+
+Run the frontend dashboard for a browser demo:
+
+```powershell
+cd C:\weatherEdgeAI\frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+### Market Types Used By The Bot
+
+Default public discovery uses `rain`, `rainfall`, `precipitation`, `snow`,
+`temperature`, `inch`, and `mm` keywords. The current automated paper workflow
+can process supported precipitation threshold markets and first-pass daily
+high/low temperature bucket or threshold markets when the parser recognizes the
+question wording.
+
+Interval precipitation contracts such as `between 190-200mm` are off by default.
+To include them in an explicit research pass:
+
+```powershell
+cd C:\weatherEdgeAI\backend
+.\.venv\Scripts\python.exe scripts\paper_market_runner.py --dry-run --allow-interval-contracts
+```
+
+Snowfall markets, broader binary temperature formats, station-specific daily
+precipitation markets, unsupported public price payloads, and unsupported parser
+wording may be discovered but skipped until the corresponding parser, model, and
+outcome-resolution support exists.
+
+### Safety And Guardrails
+
+The runner requires fresh public prices by default. To explicitly replay stored
+binary prices after a public refresh failure for research purposes, add
+`--allow-stale-price-fallback`.
+
+The runner applies freshness guards for price snapshots, forecast snapshots, and
+elapsed target windows. Started but not elapsed precipitation windows can be
+evaluated with observed precipitation to date plus forecast precipitation for
+the remaining window; use `--skip-started-windows` to restore the older
+future-window-only behavior.
+
+Conservative paper portfolio limits are enabled by default for local research:
+5 open simulated trades, 25 total simulated exposure, 5 per market, and 10 per
+parsed location. These are paper-mode realism controls, not live-trading risk
+controls. Optional paper entry slippage is available through
+`PAPER_RUNNER_ENTRY_SLIPPAGE_RATE` and defaults to `0.0`.
 
 Run the deterministic seed-fixture backtest through the API after the server is running:
 
@@ -432,7 +524,7 @@ V1 starts with precipitation threshold markets, such as:
 - Will New York City get more than 1 inch of rain tomorrow?
 - Will Chicago receive at least 0.5 inches of rain tomorrow?
 
-The current backend includes SQLAlchemy persistence models, Pydantic response schemas, mock and public-style market discovery, a precipitation market parser, forecast snapshots, a baseline precipitation probability model, EV strategy evaluation, simulated paper trades, resolved outcomes, and backtest replay metrics.
+The current backend includes SQLAlchemy persistence models, Pydantic response schemas, mock and public-style market discovery, precipitation and first-pass high/low temperature bucket parsers, forecast snapshots, baseline precipitation and temperature bucket probability models, EV strategy evaluation, simulated paper trades, resolved outcomes, and backtest replay metrics.
 
 Market discovery now uses the public Polymarket-style Gamma API by default through `POST /markets/discover`. Public discovery searches Gamma `public-search` by keyword first, with default keywords biased toward V1 precipitation and weather-measurement terms instead of the broad `weather` query that can over-collect space-weather event-count markets. It deduplicates event results, expands child markets, skips inactive or closed child markets, and falls back to the active events listing when search returns no candidates. For local demos or tests without network access, pass `"source": "mock"` in the request body.
 
@@ -440,13 +532,13 @@ Market detail reads include a computed `workflow_status` object that shows compl
 
 `GET /dashboard/summary` provides a frontend-ready summary with recent market workflow rows, compact latest signal values, paper-buy opportunities, open paper trades, recent runner history, and a compact backtest/calibration summary. It does not refresh external data or create execution records.
 
-The `frontend/` app is a Vite + React paper-trading workspace. It shows the market pipeline, latest parsed target, forecast, model, price, EV, paper-trade status, backtest metrics, calibration buckets, paper opportunities, open and historical paper trades, resolved outcome logs, and recent public paper-runner history. Its run console can trigger the deterministic `POST /demo/paper-workflow` flow or a guarded public `POST /paper-runner/run-once` pass with dry-run, trade cap, quantity, liquidity, and spread controls. Public runs remain paper-only, and the UI does not expose live-trading controls.
+The `frontend/` app is a Vite + React paper-trading workspace with tabbed views for overview, markets, paper runs, trades, evidence, and diagnostics. It shows expandable market workflow rows, latest parsed target/forecast/model/price/EV values, source diagnostics, evidence-report details, baseline comparisons, calibration buckets, public paper-run diagnostics, signal snapshots for paper trades, resolved outcome logs, and recent public paper-runner history. Its run console can trigger the deterministic `POST /demo/paper-workflow` flow or a guarded public `POST /paper-runner/run-once` pass with dry-run, trade cap, quantity, liquidity, and spread controls. Public runs remain paper-only, and the UI does not expose live-trading controls.
 
 Discovered markets and price refresh attempts store `source_diagnostics` so public data integration gaps are visible from API reads. Polymarket-sourced price refreshes use fresh Gamma market payloads, optionally enrich them with public CLOB market information, and can combine fresh token price maps with stored Gamma market context when the price response omits outcome/token metadata. Manual or fixture-backed markets can still refresh from stored payloads. Diagnostics identify supported or missing metadata, binary prices, top-of-book data, CLOB-style liquidity/volume fields, status, and resolution fields without enabling authenticated trading.
 
 Market parsing does not create demo price snapshots. Strategy evaluation depends on price records from market discovery or the explicit price refresh endpoint so recommendations can be traced back to source payloads.
 
-Forecast snapshots now use Open-Meteo through `POST /weather/forecast/{parsed_market_id}`. Parsed markets need latitude and longitude; the V1 parse route resolves New York City, NYC, New York, Chicago, London, and Hong Kong through a deterministic fixture geocoder by default. A broader Open-Meteo geocoding provider is implemented behind the same adapter and can be enabled for manual runs with `GEOCODING_PROVIDER=open_meteo`.
+Forecast snapshots now use Open-Meteo through `POST /weather/forecast/{parsed_market_id}`. Parsed markets need latitude and longitude; the V1 parse route resolves New York City, NYC, New York, Chicago, London, Hong Kong, Seattle, and Seoul through a deterministic fixture geocoder by default. A broader Open-Meteo geocoding provider is implemented behind the same adapter and can be enabled for manual runs with `GEOCODING_PROVIDER=open_meteo`. Daily high/low temperature bucket markets use the stored `forecast_temp_max` and `forecast_temp_min` fields with unit conversion between Celsius and Fahrenheit where needed.
 
 Interval/range precipitation contracts remain opt-in for paper-runner processing through `PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS=true`, `--allow-interval-contracts`, or the `allow_interval_contracts` API field.
 

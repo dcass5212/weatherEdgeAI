@@ -26,7 +26,7 @@ Show that WeatherEdge AI can:
 7. Replay resolved outcomes and paper trades through backtesting.
 8. Explain what safety controls are required before live trading is enabled.
 
-The frontend paper-trading workspace can now be used as the visual entry point for the paper demo. Run the safe mock/fixture workflow from the console, then inspect the refreshed workflow, signal, paper-trade, outcome-log, and evaluation sections. The same console can run a guarded public paper pass, defaulting to dry-run mode. The backend API remains the source of truth for the workflow.
+The frontend paper-trading workspace can now be used as the visual entry point for the paper demo. Run the safe mock/fixture workflow from the console, then inspect the refreshed workflow, signal, paper-trade, outcome-log, evidence, and diagnostics sections. The same console can run a guarded public paper pass, defaulting to dry-run mode. The backend API remains the source of truth for the workflow.
 
 ## Demo Setup
 
@@ -71,7 +71,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` after the backend is running. The workspace reads health, dashboard summary, paper-trade, and resolved-outcome data. Its run console calls only paper-safe endpoints: `POST /demo/paper-workflow` and `POST /paper-runner/run-once`.
+Open `http://127.0.0.1:5173` after the backend is running. The workspace reads health, dashboard summary, paper-trade, resolved-outcome, evidence-report, paper-runner run-history, and paper-runner diagnostics data. Its run console calls only paper-safe endpoints: `POST /demo/paper-workflow` and `POST /paper-runner/run-once`.
 
 For a scripted walkthrough, run:
 
@@ -288,7 +288,7 @@ The key design choice is snapshotting. Market prices, weather forecasts, predict
 
 ## Current Demo Limitations
 
-- The frontend workspace shows workflow status, latest signals, backtest/calibration context, stored opportunities, open and historical paper trades, outcome logs, and public paper-run history. It includes safe paper-demo and guarded public paper-run controls, but no live-trading controls.
+- The frontend workspace shows workflow status, latest signals, evidence-report context, backtest/calibration context, stored opportunities, open and historical paper trades, signal snapshots, outcome logs, public paper-run history, and public paper-run diagnostics. It includes safe paper-demo and guarded public paper-run controls, but no live-trading controls.
 - Backtesting currently uses persisted outcomes or deterministic seed fixtures for reliable demos. Open-Meteo archive outcome resolution is implemented for parsed precipitation markets, and an optional credential-gated NOAA/NCEI CDO daily `PRCP` client is available for manual outcome resolution when `NOAA_CDO_TOKEN` is configured.
 - Parser support is limited to V1 one-sided precipitation threshold wording, with clearer failures for unsupported questions, missing thresholds, unsupported units, and interval/range contracts.
 - Location support uses a deterministic fixture geocoder for a few demo cities and should later add a broader provider.

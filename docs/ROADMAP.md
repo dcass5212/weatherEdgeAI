@@ -49,8 +49,10 @@ Implemented:
 - Explicit `TRADING_MODE` and `LIVE_TRADING_ENABLED` settings, with paper mode as the default and live execution disallowed unless both live settings are enabled.
 - Open-Meteo forecast client support.
 - Forecast snapshot persistence.
+- Partial-window precipitation snapshots that combine observed precipitation to date with forecast precipitation remaining for started but not elapsed targets.
 - Fixture-backed forecast normalization for mixed values, missing values, unit conversion, temperature summaries, and raw payload preservation.
 - Baseline precipitation probability model for one-sided precipitation thresholds, including greater-than and less-than style markets, plus opt-in interval precipitation contracts for paper-runner research.
+- First-pass daily high/low temperature bucket parser and `baseline_temperature_bucket_v1` model using forecast daily max/min temperature.
 - Stored prediction outputs with model version, feature payload, parsed-market provenance, and forecast-snapshot provenance.
 - Fixed-coefficient logistic regression precipitation model, `logistic_precip_v1`, selectable for prediction runs and paper-runner research while keeping `baseline_precip_v1` as the default.
 - Expected-value helpers and stored EV recommendations with price-snapshot provenance.
@@ -98,10 +100,11 @@ Known gaps:
 
 - Deterministic fixture geocoding remains the default for local demos and tests. Open-Meteo geocoding is available as an opt-in provider, but captured edge-case coverage should continue expanding.
 - Parser failure detail exists for common unsupported cases, and one-sided inch/mm threshold coverage has expanded from real public dry-run misses. Interval contracts such as `between 2 and 3 inches` are supported only behind an explicit experimental paper-runner/API/CLI toggle; the baseline is simple and should not be treated as proven performance.
+- Public weather-market coverage now includes precipitation thresholds and first-pass daily high/low temperature buckets. Binary temperature thresholds, station-specific daily precipitation markets, and snowfall markets remain planned expansion areas.
 - Captured-style fixture coverage and source diagnostics exist for public market price payload variations, including nested orderbook payloads, nested stats-only payloads, wrapped market payloads, token `lastPrice` rows, non-binary outcomes, outcome/price length mismatches, missing token context, empty orderbooks, and split fresh-price/stored-market-context refreshes. Public request retries and failure diagnostics are implemented, but more real response captures should be added as integration gaps are found.
 - Open-Meteo archive outcome resolution exists for parsed precipitation markets with coordinates and target dates, and NOAA/NCEI CDO-style daily `PRCP` payload normalization plus an optional credential-gated NOAA CDO client exist behind the resolver interface.
-- Frontend UI has a paper-trading workspace with inline latest-signal inspection, compact source diagnostics, compact backtest/calibration context, open and historical paper-trade inspection, resolved outcome logs, recent public paper-runner history, a safe `Run Paper Demo` action, and guarded public paper-run controls that default to dry-run but can create simulated paper trades. Live-trading controls are not exposed.
-- Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, exposes aggregated diagnostics for skipped markets and unsupported public price payloads, and only continues from stored discovery-time prices when refresh fails if stale fallback is explicitly enabled. It is not yet a daemon with alerting.
+- Frontend UI has a paper-trading workspace with tabbed overview, market, paper-run, trade, evidence, and diagnostics views; expandable latest-signal inspection; source diagnostics; evidence-report context; baseline comparisons; calibration context; signal snapshots for paper trades; resolved outcome logs; recent public paper-runner history; a safe `Run Paper Demo` action; and guarded public paper-run controls that default to dry-run but can create simulated paper trades. Live-trading controls are not exposed.
+- Public-market paper trading is available as a guarded script and one-shot API. It runs once by default, can run bounded overnight loops with explicit `--interval-minutes` plus `--max-hours` or `--max-runs`, stores durable run history, exposes aggregated diagnostics for skipped markets and unsupported public price payloads, evaluates started precipitation windows with observed-to-date plus remaining forecast data by default, and only continues from stored discovery-time prices when refresh fails if stale fallback is explicitly enabled. It is not yet a daemon with alerting.
 
 ## Phase 1: Persistence Foundation
 
@@ -158,6 +161,9 @@ Remaining work:
 - Continue expanding public-source failure fixtures beyond the initial rate-limit, malformed JSON, and malformed payload coverage.
 - Remove or further isolate the parse-route demo fallback that creates a mock price snapshot for manually seeded markets. Done; parsing no longer creates price snapshots.
 - Continue expanding parsing coverage as unsupported real market questions are captured. Less-than thresholds and millimeter units are now covered; interval/range markets remain future work.
+- Continue hardening parser coverage for daily high-temperature and low-temperature markets as more captured public formats appear. Initial bucket/range and `or higher/lower` wording is implemented.
+- Add broader parser coverage for simpler binary temperature threshold markets once captured fixture formats are available.
+- Add parser coverage for daily precipitation and snowfall threshold markets once matching forecast and observed-outcome inputs are defined.
 - Continue refining parser failure reasons from observed failures.
 
 Done when:
@@ -187,7 +193,7 @@ Already present:
 - Forecast snapshot persistence route.
 - Basic forecast normalization and unit conversion.
 - Fixture-backed tests for Open-Meteo normalization edge cases.
-- Deterministic fixture geocoder for New York City, NYC, New York, and Chicago.
+- Deterministic fixture geocoder for New York City, NYC, New York, Chicago, London, Hong Kong, Seattle, and Seoul.
 - Parse route coordinate enrichment through the fixture geocoder.
 - Optional Open-Meteo geocoding client and resolver path for broader manual location coverage.
 
@@ -198,6 +204,9 @@ Remaining work:
 - Continue hardening Open-Meteo normalization as captured provider payload variations are added.
 - Store and test forecast issue/retrieval time and target window behavior more deeply.
 - Add more fixture-based tests for forecast normalization as new edge cases are found.
+- Continue hardening temperature forecast snapshots for daily high/low markets, including unit normalization between Fahrenheit and Celsius where source markets require it. Initial daily max/min snapshot usage is implemented.
+- Add observed temperature outcome resolution with station/provider diagnostics before using temperature markets for evidence reports.
+- Add snowfall forecast and observed-outcome snapshots only after precipitation and temperature workflows remain stable.
 
 Done when:
 
@@ -312,6 +321,8 @@ Work:
 - Improve the Polymarket-style public market adapter around real response shapes.
 - Use search-oriented public discovery for keyword-based market ingestion. Done with Gamma `public-search`, event deduplication, child-market expansion, inactive/closed filtering, and active-event fallback.
 - Expand explicit source capability handling for markets, prices, liquidity, volume, status, and resolution metadata. Initial persisted diagnostics are implemented.
+- Expand supported public weather-market families in a deliberate order: harden daily high/low temperature buckets, add binary temperature thresholds, add daily precipitation thresholds, and then add snowfall thresholds.
+- Keep non-weather event-count markets, pandemic markets, earthquakes, volcanoes, hurricanes, and broad climate/year-rank markets out of automated paper trading until separate data sources and models exist.
 - Add source refresh endpoints or jobs for market metadata and price snapshots. Initial read-only price refresh from fresh public Polymarket-style Gamma payloads is implemented, including optional CLOB metadata enrichment and stored market-context merging for token-only price responses.
 - Store provider errors and unsupported-market reasons in a debuggable way. Initial unsupported price reasons are persisted on markets.
 - Add rate-limit and retry behavior appropriate for public data access. Initial client retry handling and route-level persisted diagnostics are implemented for rate limits, HTTP failures, malformed JSON, malformed payloads, and retry attempts.
@@ -364,19 +375,19 @@ Portfolio value:
 
 ## Phase 8: Optional Frontend Dashboard
 
-Status: started with a read-only dashboard.
+Status: implemented as a paper-trading research workspace.
 
 Objective: add a visual demo only after the backend workflow is compelling.
 
 Work:
 
-- Build a compact dashboard for markets, forecasts, predictions, backtest/calibration metrics, opportunities, and paper trades. Initial read-only Vite + React dashboard is implemented.
+- Build a compact dashboard for markets, forecasts, predictions, backtest/calibration metrics, opportunities, and paper trades. Implemented as a Vite + React workspace.
 - Use `GET /dashboard/summary` as the first dashboard data contract. Done for the initial dashboard.
-- Show the end-to-end pipeline state for each market. Initial pipeline status is implemented.
-- Surface data provenance: parsed target, forecast snapshot, model output, price snapshot, EV recommendation, and public source diagnostics. Initial inline latest-signal and source-diagnostic fields are implemented; deeper market-detail inspection remains a follow-up.
-- Surface model evaluation context. Compact backtest metrics, paper replay metrics, calibration buckets, and sample-size notes are implemented through the dashboard summary contract.
-- Surface public paper-runner validation history. Recent run status, dry-run mode, workflow counts, skip reasons, and errors are implemented through the dashboard summary contract.
-- Keep the UI operational and data-dense, not marketing-focused. Initial pass follows this direction.
+- Show the end-to-end pipeline state for each market. Implemented with expandable workflow rows.
+- Surface data provenance: parsed target, forecast snapshot, model output, price snapshot, EV recommendation, and public source diagnostics. Implemented through expandable market rows and paper-trade signal snapshot inspection.
+- Surface model evaluation context. Implemented with dashboard summary metrics plus `GET /evaluation/evidence-report` details, lifecycle counts, baseline comparisons, calibration buckets, sample-size gates, and interpretation limits.
+- Surface public paper-runner validation history. Implemented with recent run cards, selected run config, actionable/expected trade counts, skip reasons, errors, and `GET /paper-runner/diagnostics` funnel/price diagnostics.
+- Keep the UI operational and data-dense, not marketing-focused. Current pass follows this direction with tabbed review surfaces and filters.
 - Add safe paper-workflow action buttons after the read-only dashboard is stable. Implemented as a run console for deterministic demo trades and guarded public paper passes, with dry-run, max-trade, quantity, liquidity, and spread controls. The dashboard also reads paper-trade history and resolved outcome logs.
 
 Done when:
@@ -467,11 +478,13 @@ Portfolio value:
 1. Run and document multi-day paper-market evidence loops with persisted public run history, batch outcome resolution, settled paper trades, and evidence reports.
 2. Improve observed-outcome provider quality, especially NOAA station-selection diagnostics, source uncertainty, and provider comparison where available.
 3. Evaluate `logistic_precip_v1` against `baseline_precip_v1`, market-implied probability, and always-50% with resolved outcomes; tune or train coefficients only after enough evaluated records exist.
-4. Continue improving real public market-data integration while preserving paper mode as default, especially captured fixture coverage for unsupported public payloads.
-5. Expand the dashboard to show evidence-report details, walk-forward backtest context, and public paper-run diagnostics more directly.
-6. Add CI and operational polish, including backend tests, frontend build checks, structured runner logs, readiness checks, and failure-mode coverage.
-7. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
-8. Add real execution only after safety controls are implemented and tested.
+4. Validate first-pass temperature bucket support in rehearsals before increasing simulated exposure; next design work is forecast distribution assumptions, observed temperature outcome resolution, and multi-outcome EV semantics.
+5. Continue improving real public market-data integration while preserving paper mode as default, especially captured fixture coverage for unsupported public payloads.
+6. Expand into broader binary temperature thresholds, daily precipitation thresholds, and snowfall thresholds only after temperature bucket behavior is tested on fixtures and public rehearsals.
+7. Add walk-forward backtest context and richer time-series charting to the dashboard once enough evaluated records exist.
+8. Add CI and operational polish, including backend tests, frontend build checks, structured runner logs, readiness checks, and failure-mode coverage.
+9. Add live-trading safety foundation only after paper trading and backtesting evidence exists.
+10. Add real execution only after safety controls are implemented and tested.
 
 ## Priority Rules
 

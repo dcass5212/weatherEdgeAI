@@ -52,7 +52,16 @@ Expected:
 
 ## Frontend Dashboard
 
-The frontend paper-trading workspace displays recent market workflow status, compact source diagnostics, latest signal values, backtest/calibration metrics, stored paper-buy opportunities, open and historical paper trades, resolved outcome logs, and recent public paper-runner history. Recoverable public price-refresh failures are labeled as `using stored price` only when stale fallback is explicitly enabled; otherwise they appear as `fresh price required`.
+The frontend paper-trading workspace displays recent market workflow status, source diagnostics, latest signal values, evidence-report details, backtest/calibration metrics, stored paper-buy opportunities, open and historical paper trades, resolved outcome logs, public paper-runner diagnostics, and recent public paper-runner history. Recoverable public price-refresh failures are labeled as `using stored price` only when stale fallback is explicitly enabled; otherwise they appear as `fresh price required`.
+
+Use the tabs for a browser-first review:
+
+- `Overview`: workflow totals, evidence snapshot, paper ledger, and latest market rows.
+- `Markets`: expandable market workflow rows with parsed target, source diagnostics, snapshot IDs, and next action.
+- `Paper Runs`: recent public paper-runner passes with counts, skip reasons, errors, selected config, actionable recommendations, and expected paper trades.
+- `Trades`: paper opportunities, open/all paper trades, and signal-snapshot details for simulated entries.
+- `Evidence`: evidence report, sample-size gate, paper-trade lifecycle counts, baseline comparisons, and calibration buckets.
+- `Diagnostics`: runner funnel, skip reasons, price-status counts, unsupported price reasons, and recent runner errors.
 
 The run console can call `POST /demo/paper-workflow` for a deterministic mock/fixture paper trade, or `POST /paper-runner/run-once` for a guarded public pass with dry-run, max-trade, quantity, liquidity, and spread controls. Dry-run is the default public mode in the UI. Disabling it creates simulated paper trades only; the frontend does not expose live trading.
 

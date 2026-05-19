@@ -11,6 +11,8 @@ from app.modeling.baseline import MODEL_VERSION as BASELINE_MODEL_VERSION
 from app.modeling.baseline import PredictionResult, run_baseline_prediction
 from app.modeling.logistic_regression import MODEL_VERSION as LOGISTIC_MODEL_VERSION
 from app.modeling.logistic_regression import run_logistic_regression_prediction
+from app.modeling.temperature_bucket import MODEL_VERSION as TEMPERATURE_BUCKET_MODEL_VERSION
+from app.modeling.temperature_bucket import run_temperature_bucket_prediction
 
 
 PredictionModel = Callable[[ParsedMarket, WeatherForecastSnapshot], PredictionResult]
@@ -20,6 +22,7 @@ DEFAULT_MODEL_VERSION = BASELINE_MODEL_VERSION
 _MODELS: dict[str, PredictionModel] = {
     BASELINE_MODEL_VERSION: run_baseline_prediction,
     LOGISTIC_MODEL_VERSION: run_logistic_regression_prediction,
+    TEMPERATURE_BUCKET_MODEL_VERSION: run_temperature_bucket_prediction,
 }
 
 
@@ -32,6 +35,8 @@ def run_prediction_model(
     forecast: WeatherForecastSnapshot,
     model_version: str = DEFAULT_MODEL_VERSION,
 ) -> PredictionResult:
+    if parsed_market.metric == "temperature" and model_version == DEFAULT_MODEL_VERSION:
+        return run_temperature_bucket_prediction(parsed_market, forecast)
     try:
         model = _MODELS[model_version]
     except KeyError as exc:

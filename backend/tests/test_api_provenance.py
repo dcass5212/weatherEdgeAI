@@ -174,7 +174,11 @@ def test_run_prediction_rejects_unknown_model_version(
 
     assert response.status_code == 422
     body = response.json()
-    assert body["detail"]["supported_model_versions"] == ["baseline_precip_v1", "logistic_precip_v1"]
+    assert body["detail"]["supported_model_versions"] == [
+        "baseline_precip_v1",
+        "logistic_precip_v1",
+        "baseline_temperature_bucket_v1",
+    ]
 
 
 def test_strategy_evaluation_records_exact_latest_price_snapshot_and_exposes_prediction_provenance(

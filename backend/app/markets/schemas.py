@@ -19,8 +19,9 @@ class ParsedMarketResult(BaseModel):
     threshold_unit: str | None = None
     target_start: datetime | None = None
     target_end: datetime | None = None
-    parser_version: str = "regex_precip_v1"
+    parser_version: str = "regex_weather_v1"
     parse_confidence: float = 0.0
+    raw_parse_json: dict | None = None
     error: str | None = None
 
 
@@ -119,7 +120,7 @@ class MarketDetailRead(MarketRead):
 
 class MarketDiscoveryRequest(BaseModel):
     source: str = "polymarket"
-    keywords: list[str] = Field(default_factory=lambda: ["weather", "rain", "snow", "temperature"])
+    keywords: list[str] = Field(default_factory=lambda: ["rain", "rainfall", "precipitation", "snow", "temperature", "inch", "mm"])
     limit: int = Field(default=50, gt=0, le=200)
 
 

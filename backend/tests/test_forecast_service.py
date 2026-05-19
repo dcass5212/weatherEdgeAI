@@ -34,11 +34,27 @@ def _parsed_market(threshold_unit: str = "inch") -> ParsedMarket:
 class RecordingForecastClient:
     def __init__(self) -> None:
         self.called = False
+        self.requests: list[tuple[float, float, str, str]] = []
 
     async def fetch_forecast(self, latitude: float, longitude: float, start_date: str, end_date: str) -> dict:
         self.called = True
+        self.requests.append((latitude, longitude, start_date, end_date))
         return {
-            "daily": {"precipitation_sum": [0.0]},
+            "daily": {"precipitation_sum": [12.7]},
+            "daily_units": {"precipitation_sum": "mm"},
+        }
+
+
+class RecordingArchiveClient:
+    def __init__(self) -> None:
+        self.called = False
+        self.requests: list[tuple[float, float, str, str]] = []
+
+    async def fetch_daily_observations(self, latitude: float, longitude: float, start_date: str, end_date: str) -> dict:
+        self.called = True
+        self.requests.append((latitude, longitude, start_date, end_date))
+        return {
+            "daily": {"precipitation_sum": [12.7, 12.7]},
             "daily_units": {"precipitation_sum": "mm"},
         }
 
@@ -107,6 +123,29 @@ async def test_fetch_forecast_rejects_started_target_window_before_provider_call
     client = RecordingForecastClient()
 
     with pytest.raises(ValueError, match="forecast target window has already started"):
-        await fetch_forecast_for_parsed_market(parsed_market, client=client)
+        await fetch_forecast_for_parsed_market(parsed_market, client=client, allow_started_window=False)
 
     assert client.called is False
+
+
+@pytest.mark.anyio
+async def test_fetch_forecast_combines_observed_to_date_and_remaining_forecast_for_started_window() -> None:
+    parsed_market = _parsed_market()
+    parsed_market.target_start = datetime.now(timezone.utc) - timedelta(days=2)
+    parsed_market.target_end = datetime.now(timezone.utc) + timedelta(days=2)
+    forecast_client = RecordingForecastClient()
+    archive_client = RecordingArchiveClient()
+
+    snapshot = await fetch_forecast_for_parsed_market(
+        parsed_market,
+        client=forecast_client,
+        archive_client=archive_client,
+    )
+
+    assert forecast_client.called is True
+    assert archive_client.called is True
+    assert snapshot.forecast_source == "open_meteo_partial_window"
+    assert snapshot.forecast_precip_total == 1.5
+    assert snapshot.forecast_precip_unit == "inch"
+    assert snapshot.raw_json["observed_to_date"]["precip_total"] == 1.0
+    assert snapshot.raw_json["forecast_remaining"]["precip_total"] == 0.5

@@ -2,6 +2,56 @@
 
 All notable Codex-assisted changes to WeatherEdge AI are documented here after each implementation prompt.
 
+## 2026-05-18
+
+### Added
+
+- Added a tabbed frontend research workspace with overview, markets, paper runs, trades, evidence, and diagnostics views.
+- Added frontend reads for `GET /evaluation/evidence-report`, `GET /paper-runner/runs`, and `GET /paper-runner/diagnostics`.
+- Added expandable market workflow rows, paper-run detail panels, paper-trade signal snapshot inspection, evidence-report lifecycle metrics, baseline comparison tables, runner funnel diagnostics, skip-reason summaries, price-status summaries, and date/model/source/action filters.
+- Added a persistent paper-mode safety strip to the frontend so browser demos clearly show that live execution remains disabled.
+
+### Changed
+
+- Reworked the frontend from a compact status dashboard into a denser paper-trading review workspace while keeping all execution-like controls paper-only.
+- Updated README, API workflow docs, local demo docs, demo plan, and roadmap notes for the expanded dashboard behavior.
+
+### Verified
+
+- Ran `npm run build` in `frontend`; TypeScript and Vite production build completed successfully.
+
+## 2026-05-16
+
+### Added
+
+- Added first-pass daily high/low temperature bucket parsing for questions such as `Highest temperature in NYC on May 17 80-81F?` and `Lowest temperature in London on May 17 10C or lower?`.
+- Added `baseline_temperature_bucket_v1`, a transparent point-forecast baseline for daily high/low temperature bucket markets with Celsius/Fahrenheit conversion.
+- Added default model dispatch so temperature parsed markets use the temperature bucket baseline while precipitation markets keep the precipitation baseline.
+- Added public discovery normalization that combines temperature event titles with child bucket labels such as `80-81F`.
+- Added focused parser, model, discovery, and paper-runner tests for temperature bucket markets.
+- Added partial-window precipitation forecast snapshots that combine Open-Meteo archive observations through yesterday with Open-Meteo forecast precipitation for the remaining target window.
+- Added `PAPER_RUNNER_ALLOW_PARTIAL_STARTED_WINDOWS`, paper-runner API support, and CLI `--allow-partial-started-windows` / `--skip-started-windows` controls.
+- Added Seattle and Seoul to the deterministic fixture geocoder for current public precipitation market coverage.
+- Added focused tests for partial-window forecast construction and started-window runner behavior.
+
+### Changed
+
+- Changed public paper-runner parser skip accounting so opt-in interval precipitation contracts are reported only as `parse_failed_interval_contract`, leaving generic `parse_failed` for unsupported parser misses.
+- Changed public paper-runner defaults to search the precipitation-oriented default keyword set, discover up to 50 markets, and process up to 25 candidates per pass.
+- Updated docs to distinguish elapsed windows from started-but-active precipitation windows and to describe the combined observed-plus-forecast input.
+- Updated the roadmap with planned expansion paths for daily high/low temperature buckets, binary temperature thresholds, daily precipitation thresholds, and snowfall thresholds while keeping those markets out of implemented paper trading for now.
+- Reworked the README public paper-runner instructions into a start-to-finish paper bot runbook covering database setup, smoke checks, rehearsal, one-pass runs, overnight loops, outcome maintenance, inspection endpoints, supported market types, and paper-mode guardrails.
+
+### Verified
+
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_paper_market_runner.py -q`; all 42 focused parser and paper-runner tests passed.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_market_parser.py tests\test_temperature_bucket_model.py tests\test_market_discovery.py tests\test_paper_market_runner.py tests\test_forecast_service.py tests\test_api_paper_runner.py tests\test_paper_market_runner_cli.py -q`; all 99 focused tests passed.
+- Ran `.\.venv\Scripts\pytest.exe -q`; all 196 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --allow-interval-contracts --max-trades 3 --quantity 1 --min-liquidity 30 --max-spread 0.5`; the public rehearsal discovered 50 markets, created 5 forecasts/predictions/recommendations, and estimated 3 paper trades without creating simulated trades.
+- Ran `.\.venv\Scripts\pytest.exe tests\test_forecast_service.py tests\test_paper_market_runner.py tests\test_api_paper_runner.py tests\test_paper_market_runner_cli.py tests\test_geocoding.py -q`; all 57 focused tests passed.
+- Ran `.\.venv\Scripts\pytest.exe -q`; all 189 backend tests passed.
+- Ran `.\.venv\Scripts\python.exe scripts\paper_market_runner.py --rehearsal --allow-interval-contracts --max-trades 3 --quantity 1 --min-liquidity 30 --max-spread 0.5`; the public rehearsal discovered 50 markets, created 3 forecasts/predictions/recommendations, and estimated 3 paper trades without creating simulated trades.
+
 ## 2026-05-13
 
 ### Added

@@ -112,6 +112,20 @@ async def stale_fixture_forecast(parsed_market: ParsedMarket) -> WeatherForecast
     )
 
 
+async def fixture_temperature_forecast(parsed_market: ParsedMarket) -> WeatherForecastSnapshot:
+    return WeatherForecastSnapshot(
+        parsed_market_id=parsed_market.id,
+        forecast_source="test_fixture",
+        forecast_timestamp=datetime.now(timezone.utc),
+        target_start=parsed_market.target_start,
+        target_end=parsed_market.target_end,
+        forecast_temp_max=80.5,
+        forecast_temp_min=52.0,
+        forecast_temp_unit="F",
+        raw_json={"test_fixture": True},
+    )
+
+
 async def unexpected_forecast_provider(parsed_market: ParsedMarket) -> WeatherForecastSnapshot:
     raise AssertionError("forecast provider should not be called")
 
@@ -458,7 +472,7 @@ async def test_paper_market_runner_skips_started_target_window_before_forecast(d
 
     runner = PaperMarketRunner(
         db=db_session,
-        config=PaperMarketRunnerConfig(refresh_prices=False),
+        config=PaperMarketRunnerConfig(refresh_prices=False, allow_partial_started_windows=False),
         discovery_service=FakeDiscoveryService([
             _discovered_market(
                 source_market_id="started-month-window",
@@ -475,6 +489,58 @@ async def test_paper_market_runner_skips_started_target_window_before_forecast(d
     assert report.predictions_created == 0
     assert report.paper_trades_created == 0
     assert report.skipped["target_window_started"] == 1
+
+
+@pytest.mark.anyio
+async def test_paper_market_runner_allows_started_target_window_with_partial_weather_input(db_session: Session) -> None:
+    market = Market(
+        source="polymarket",
+        source_market_id="started-month-window",
+        condition_id="condition-started-month-window",
+        question="Will New York City get more than 1 inch of rain in May?",
+        active=True,
+        closed=False,
+    )
+    db_session.add(market)
+    db_session.flush()
+    db_session.add(
+        ParsedMarket(
+            market_id=market.id,
+            location_name="New York City",
+            latitude=40.7128,
+            longitude=-74.006,
+            metric="precipitation",
+            operator=">",
+            threshold_value=1.0,
+            threshold_unit="inch",
+            target_start=datetime.now(timezone.utc) - timedelta(days=10),
+            target_end=datetime.now(timezone.utc) + timedelta(days=20),
+            parser_version="regex_precip_v1",
+            parse_confidence=0.85,
+            raw_parse_json={"test_fixture": "started_month_window"},
+        )
+    )
+    db_session.commit()
+
+    runner = PaperMarketRunner(
+        db=db_session,
+        config=PaperMarketRunnerConfig(refresh_prices=False, create_trades=False),
+        discovery_service=FakeDiscoveryService([
+            _discovered_market(
+                source_market_id="started-month-window",
+                question="Will New York City get more than 1 inch of rain in May?",
+            )
+        ]),
+        forecast_provider=fixture_forecast,
+    )
+
+    report = await runner.run_once()
+
+    assert report.processed == 1
+    assert report.forecasts_created == 1
+    assert report.predictions_created == 1
+    assert report.recommendations_created == 1
+    assert "target_window_started" not in report.skipped
 
 
 @pytest.mark.anyio
@@ -514,8 +580,8 @@ async def test_paper_market_runner_records_interval_contract_parse_skip(db_sessi
 
     assert report.processed == 1
     assert report.paper_trades_created == 0
-    assert report.skipped["parse_failed"] == 1
     assert report.skipped["parse_failed_interval_contract"] == 1
+    assert "parse_failed" not in report.skipped
 
 
 @pytest.mark.anyio
@@ -539,6 +605,34 @@ async def test_paper_market_runner_interval_contracts_are_opt_in(db_session: Ses
     assert report.parsed == 1
     assert report.predictions_created == 1
     assert report.recommendations_created == 1
+    assert report.skipped["trade_creation_disabled"] == 1
+
+
+@pytest.mark.anyio
+async def test_paper_market_runner_processes_temperature_bucket_market(db_session: Session) -> None:
+    runner = PaperMarketRunner(
+        db=db_session,
+        config=PaperMarketRunnerConfig(refresh_prices=False, create_trades=False),
+        discovery_service=FakeDiscoveryService([
+            _discovered_market(
+                source_market_id="nyc-high-temp-bucket",
+                question="Highest temperature in NYC on May 17, 2099 80-81F?",
+                yes_price=0.44,
+                no_price=0.56,
+            )
+        ]),
+        forecast_provider=fixture_temperature_forecast,
+    )
+
+    report = await runner.run_once()
+
+    assert report.processed == 1
+    assert report.parsed == 1
+    assert report.forecasts_created == 1
+    assert report.predictions_created == 1
+    assert report.recommendations_created == 1
+    assert report.actionable_recommendations == 1
+    assert report.expected_paper_trades == 1
     assert report.skipped["trade_creation_disabled"] == 1
 
 

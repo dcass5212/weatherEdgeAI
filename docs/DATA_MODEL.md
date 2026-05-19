@@ -61,9 +61,9 @@ Important fields:
 - `location_name`: parsed location.
 - `latitude` and `longitude`: coordinates used for forecast requests.
 - `metric`: currently precipitation.
-- `operator`: precipitation threshold comparison. One-sided contracts use `>`, `>=`, `<`, or `<=`; opt-in interval contracts use `between`.
-- `threshold_value`: numeric threshold. For interval contracts this is the lower bound.
-- `threshold_unit`: currently inches or millimeters for V1 precipitation thresholds.
+- `operator`: threshold comparison. One-sided contracts use `>`, `>=`, `<`, or `<=`; bucket/range contracts use `between`.
+- `threshold_value`: numeric threshold. For interval or bucket contracts this is the lower bound.
+- `threshold_unit`: inches or millimeters for precipitation thresholds; `F` or `C` for temperature bucket markets.
 - `target_start` and `target_end`: target weather window.
 - `parse_confidence`: parser confidence estimate.
 - `parser_version`: parser version string.
@@ -77,7 +77,7 @@ Design note:
 
 - Multiple parsed records can exist for the same market as the parser and geocoding improve. Predictions should link to the parsed market record they used.
 - The parser extracts location text; the parse route resolves coordinates through a deterministic geocoder before persisting the parsed market.
-- Interval contract upper bounds are currently stored in `raw_parse_json.interval_upper_value` to avoid a schema migration while the interval baseline remains experimental and opt-in.
+- Interval and temperature bucket upper bounds are currently stored in `raw_parse_json.interval_upper_value` to avoid a schema migration while these baselines remain early research signals. Temperature markets also store `raw_parse_json.temperature_kind` as `high` or `low`.
 
 ## `market_price_snapshots`
 
@@ -123,6 +123,8 @@ Design note:
 
 - Forecast snapshots are critical for reproducibility. A prediction should always identify the exact forecast snapshot used.
 - Forecast normalization preserves the raw provider payload while storing normalized precipitation and temperature summary fields for modeling.
+- For started but not elapsed precipitation windows, `forecast_source` can be `open_meteo_partial_window`; the snapshot stores a combined full-window precipitation estimate and preserves both observed-to-date archive payloads and remaining forecast payloads in `raw_json`.
+- Daily high/low temperature bucket markets use `forecast_temp_max` or `forecast_temp_min`. Temperature unit conversion happens in the prediction model so the snapshot can preserve provider units.
 
 ## `predictions`
 

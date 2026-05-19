@@ -441,6 +441,44 @@ async def test_discovery_falls_back_to_active_events_when_public_search_is_empty
 
 
 @pytest.mark.anyio
+async def test_discovery_combines_temperature_event_title_with_bucket_outcome() -> None:
+    class FakeClient:
+        async def fetch_public_search_events(self, query: str, limit: int = 20) -> list[dict]:
+            return [
+                {
+                    "id": "temp-event",
+                    "title": "Highest temperature in NYC on May 17?",
+                    "category": "Weather",
+                    "markets": [
+                        {
+                            "id": "temp-bucket-80-81",
+                            "conditionId": "condition-temp",
+                            "groupItemTitle": "80-81F",
+                            "outcomes": '["Yes", "No"]',
+                            "outcomePrices": '["0.41", "0.59"]',
+                            "active": True,
+                            "closed": False,
+                        }
+                    ],
+                }
+            ]
+
+        async def fetch_active_events(self) -> list[dict]:
+            raise AssertionError("public search should be used before active event fallback")
+
+    markets = await MarketDiscoveryService(client=FakeClient()).discover_weather_markets(
+        source="polymarket",
+        keywords=["temperature"],
+        limit=10,
+    )
+
+    assert len(markets) == 1
+    assert markets[0].question == "Highest temperature in NYC on May 17 80-81F?"
+    assert markets[0].price_snapshot is not None
+    assert markets[0].price_snapshot.yes_price == 0.41
+
+
+@pytest.mark.anyio
 async def test_default_discovery_keywords_prioritize_precipitation_queries() -> None:
     queries: list[str] = []
 

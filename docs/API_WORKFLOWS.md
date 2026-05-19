@@ -48,7 +48,7 @@ Current behavior:
 
 - `source: "mock"` returns deterministic demo markets.
 - Non-mock discovery uses a Polymarket-style public market source. It searches Gamma `public-search` by keyword first, deduplicates event results, falls back to active event listing when search returns no candidates, and skips inactive or closed child markets.
-- Default non-mock discovery keywords are precipitation-first (`rain`, `rainfall`, `precipitation`, `snow`, `temperature`, `inch`, `mm`) so automated collection does not start from the broad `weather` query that currently returns many space-weather event-count markets.
+- Default non-mock discovery keywords are weather-measurement oriented (`rain`, `rainfall`, `precipitation`, `snow`, `temperature`, `inch`, `mm`) so automated collection does not start from the broad `weather` query that currently returns many space-weather event-count markets.
 - Discovered markets are persisted idempotently by source and source market ID.
 - Discovery persists source-aware market price snapshots when source price data is available.
 - Discovery stores market-level `source_diagnostics` describing supported metadata, price, top-of-book, Gamma/CLOB liquidity and volume fields, status, and resolution fields.
@@ -311,7 +311,7 @@ Expected response shape:
 
 ### Frontend Usage
 
-The `frontend/` app is the first dashboard implementation for this contract. It is intentionally read-only and uses the Vite dev-server proxy at `/api` to call the FastAPI backend locally.
+The `frontend/` app is the browser paper-trading workspace. It uses the Vite dev-server proxy at `/api` to call the FastAPI backend locally. It reads inspection endpoints for evidence and diagnostics, and its only write actions call paper-only workflows.
 
 Current frontend behavior:
 
@@ -319,11 +319,14 @@ Current frontend behavior:
 - Reads `GET /dashboard/summary`.
 - Reads `GET /paper-trades` and `GET /paper-trades?status=OPEN` for open and historical paper-trade views.
 - Reads `GET /backtests/resolved-outcomes` for the outcome log.
-- Shows recent market workflow rows with compact latest parsed target, forecast, model, price, EV, and paper-trade status values.
-- Shows compact market source diagnostics, including supported/partial/unsupported price status and unsupported reasons.
-- Shows compact backtest metrics, paper replay metrics, calibration buckets, and sample-size context.
+- Reads `GET /paper-runner/runs`, `GET /paper-runner/diagnostics`, and `GET /evaluation/evidence-report` for richer review views.
+- Shows recent market workflow rows with expandable latest parsed target, forecast, model, price, EV, and paper-trade status values.
+- Shows market source diagnostics, including supported/partial/unsupported price status, source errors, stale-price fallback labels, and unsupported reasons.
+- Shows evidence-report metrics, paper-trade lifecycle counts, market-implied comparison coverage, baseline comparisons, calibration buckets, and sample-size context.
 - Shows paper-buy opportunities, open paper trades, all stored paper trades, and resolved outcome logs.
-- Shows recent public paper-runner runs with status, dry-run mode, workflow counts, skip reasons, and errors.
+- Shows recent public paper-runner runs with status, dry-run mode, workflow counts, skip reasons, errors, selected run config, actionable recommendations, expected paper trades, and stale-price fallback settings.
+- Shows paper trade signal snapshots when present, including quoted/fill pricing, slippage, liquidity, spread, model probability, forecast, and runner config.
+- Provides tabs and filters for model version, date range, market source, next workflow action, run mode, and trade status.
 - Provides a `Run Paper Demo` button that calls only `POST /demo/paper-workflow`.
 - Provides a run console for `POST /paper-runner/run-once` with dry-run, max-trade, quantity, liquidity, and spread controls. Dry-run remains the default public setting; turning it off creates simulated paper trades only.
 - Does not expose live-trading controls.
@@ -354,11 +357,13 @@ Optional query parameter:
 
 Current behavior:
 
-- Parses precipitation threshold questions.
+- Parses precipitation threshold questions and first-pass daily high/low temperature bucket questions.
 - Extracts location, metric, operator, threshold, unit, and target window when possible.
 - Supports common V1 precipitation wording such as `more than 1 inch of rain`, `over 1 inch of precipitation`, `at least 0.5 inches of rain`, `0.5 inches or more of rain`, `less than 2 inches of precipitation`, `240mm or more of precipitation`, and `more than 1 inch of rain in New York City`.
 - Interval contracts such as `between 190-200mm of precipitation` are supported only when `allow_interval_contracts=true` is passed to the parse endpoint or the paper-runner interval toggle is enabled. They use a simple interval baseline and should be treated as experimental research signals.
-- Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, Chicago, London, and Hong Kong by default.
+- Supports temperature bucket wording such as `Highest temperature in NYC on May 17 80-81F?` and threshold wording such as `Lowest temperature in London on May 17 10C or lower?`.
+- Temperature buckets are stored as binary bucket contracts with `metric: "temperature"`, `operator: "between"`, `threshold_value` as the lower bound, and `raw_parse_json.interval_upper_value` as the upper bound. `raw_parse_json.temperature_kind` records `high` or `low`.
+- Parsed locations are resolved through a deterministic fixture geocoder for New York City, NYC, New York, Chicago, London, Hong Kong, Seattle, and Seoul by default.
 - A broader Open-Meteo geocoding provider is available behind the same adapter when `GEOCODING_PROVIDER=open_meteo`.
 - Parsing does not create market price snapshots. Use market discovery or `POST /markets/{market_id}/price-snapshots/refresh` so strategy evaluation can trace prices to a source payload.
 
@@ -401,8 +406,10 @@ Current behavior:
 
 - Requires the parsed market to have latitude and longitude.
 - Calls Open-Meteo through the weather service.
+- For started but not elapsed precipitation windows, combines Open-Meteo archive observations from the target start through yesterday with Open-Meteo forecast precipitation from today through the target end.
 - Persists a `weather_forecast_snapshots` record.
 - Normalizes daily precipitation totals defensively from Open-Meteo payloads, including numeric strings, missing values, malformed lists, millimeter-to-inch conversion, temperature min/max, and raw payload preservation.
+- Daily high/low temperature bucket predictions use `forecast_temp_max` or `forecast_temp_min` from the same snapshot, with Celsius/Fahrenheit conversion handled in the temperature model.
 
 Expected response fields:
 
@@ -450,6 +457,7 @@ Current behavior:
 - Stores a prediction with model version, probabilities, confidence, and feature payload.
 - The stored prediction records the exact `parsed_market_id` and `forecast_snapshot_id` used for reproducibility.
 - `baseline_precip_v1` remains the default transparent banded baseline.
+- When the default baseline is requested for a temperature parsed market, prediction dispatch uses `baseline_temperature_bucket_v1`, a point-forecast bucket baseline for daily high/low temperature markets.
 - `logistic_precip_v1` uses a fixed-coefficient logistic regression formula over forecast-vs-threshold features. Its coefficients are hand-selected initial coefficients, not trained performance evidence.
 
 Expected response fields:
@@ -920,8 +928,8 @@ Content-Type: application/json
 
 {
   "keywords": ["rain", "precipitation", "snow"],
-  "discovery_limit": 25,
-  "process_limit": 10,
+  "discovery_limit": 50,
+  "process_limit": 25,
   "max_trades": 3,
   "quantity": 1,
   "min_liquidity": 100,
@@ -929,6 +937,7 @@ Content-Type: application/json
   "refresh_prices": true,
   "dry_run": false,
   "allow_interval_contracts": false,
+  "allow_partial_started_windows": true,
   "max_price_age_minutes": 120,
   "max_forecast_age_hours": 12,
   "max_open_trades": 5,
@@ -951,8 +960,8 @@ Content-Type: application/json
 
 {
   "keywords": ["rain", "precipitation", "snow"],
-  "discovery_limit": 25,
-  "process_limit": 10,
+  "discovery_limit": 50,
+  "process_limit": 25,
   "max_trades": 3,
   "quantity": 1,
   "min_liquidity": 100,
@@ -986,10 +995,10 @@ Current behavior:
 
 - Summarizes recent paper-run counts for discovered, processed, parsed, forecasted, predicted, recommended, and simulated paper-traded markets.
 - Groups skip reasons into readable categories such as price data, eligibility filters, parser, geocoding, provider/workflow errors, and paper-trading controls.
-- Separates interval precipitation contracts from generic parser failures so public dry-run diagnostics show when a market needs interval probability modeling rather than one-sided threshold parsing.
+- Separates interval precipitation contracts from generic parser failures so public dry-run diagnostics show when a market needs interval probability modeling rather than one-sided threshold parsing. Disabled interval contracts increment `parse_failed_interval_contract` without also incrementing generic `parse_failed`.
 - Prioritizes precipitation threshold candidates ahead of broad weather false positives, such as space-weather event-count markets, when selecting the next stored markets to process.
 - Skips stale price snapshots and stale forecast snapshots using configurable freshness limits.
-- Skips markets whose target weather window has already started or elapsed, because the current paper runner uses forecast-only modeling rather than observed-to-date plus remaining forecast data.
+- Skips elapsed target weather windows. Started but not elapsed precipitation windows can be evaluated with observed precipitation to date plus remaining forecast data, controlled by `allow_partial_started_windows` or CLI `--allow-partial-started-windows` / `--skip-started-windows`.
 - Applies conservative paper portfolio limits before creating simulated trades: max open trades, total simulated exposure, per-market exposure, and per-location exposure.
 - Optionally applies paper entry slippage to simulated fills while preserving the quoted entry price in `signal_snapshot_json`.
 - Reports market source price-status counts from persisted `source_diagnostics`, such as `supported`, `partial`, `unsupported`, `stale_supported`, and `fresh_price_required`.

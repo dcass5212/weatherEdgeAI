@@ -518,6 +518,23 @@ def _text_matches_weather(text: str, keywords: list[str]) -> bool:
 
 def _market_question(raw: dict[str, Any], parent_event: dict[str, Any] | None = None) -> str | None:
     raw = _market_payload(raw)
+    parent_question = None
+    if parent_event:
+        parent_payload = _market_payload(parent_event)
+        for key in ("question", "title", "name"):
+            value = parent_payload.get(key)
+            if isinstance(value, str) and value.strip():
+                parent_question = value.strip()
+                break
+    group_title = raw.get("groupItemTitle") or raw.get("group_item_title")
+    if (
+        parent_question
+        and isinstance(group_title, str)
+        and group_title.strip()
+        and "temperature" in parent_question.lower()
+        and group_title.strip() not in parent_question
+    ):
+        return f"{parent_question.rstrip('?')} {group_title.strip()}?"
     for key in ("question", "title", "name", "groupItemTitle", "group_item_title"):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():

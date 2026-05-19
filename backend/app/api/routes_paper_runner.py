@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import Market, PaperRunnerRun
 from app.db.session import get_db
+from app.markets.market_discovery import WEATHER_KEYWORDS
 from app.modeling.model_registry import DEFAULT_MODEL_VERSION, available_model_versions
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, run_paper_market_once_recorded
 
@@ -25,9 +26,9 @@ router = APIRouter(prefix="/paper-runner", tags=["paper-runner"])
 
 class PaperRunnerRunRequest(BaseModel):
     source: str = "polymarket"
-    keywords: list[str] = Field(default_factory=lambda: ["rain", "weather", "precipitation"])
-    discovery_limit: int = Field(default=25, gt=0, le=100)
-    process_limit: int = Field(default=10, gt=0, le=100)
+    keywords: list[str] = Field(default_factory=lambda: list(WEATHER_KEYWORDS))
+    discovery_limit: int = Field(default=50, gt=0, le=100)
+    process_limit: int = Field(default=25, gt=0, le=100)
     max_trades: int = Field(default=3, ge=0, le=25)
     quantity: float = Field(default=1.0, gt=0)
     min_liquidity: float = Field(default=0.0, ge=0)
@@ -35,6 +36,7 @@ class PaperRunnerRunRequest(BaseModel):
     refresh_prices: bool = True
     dry_run: bool = False
     allow_interval_contracts: bool = settings.PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS
+    allow_partial_started_windows: bool = settings.PAPER_RUNNER_ALLOW_PARTIAL_STARTED_WINDOWS
     max_price_age_minutes: float | None = Field(default=settings.PAPER_RUNNER_MAX_PRICE_AGE_MINUTES, ge=0)
     max_forecast_age_hours: float | None = Field(default=settings.PAPER_RUNNER_MAX_FORECAST_AGE_HOURS, ge=0)
     max_open_trades: int | None = Field(default=settings.PAPER_RUNNER_MAX_OPEN_TRADES, ge=0)
@@ -129,6 +131,7 @@ SKIP_REASON_CATEGORIES = {
     "parse_failed_unsupported_unit": ("parser", "Question used an unsupported precipitation unit"),
     "parse_failed_interval_contract": ("parser", "Question used an interval contract that needs interval probability modeling"),
     "parse_failed_unsupported_wording": ("parser", "Question used unsupported precipitation wording"),
+    "parse_failed_unsupported_temperature_wording": ("parser", "Question used unsupported temperature wording"),
     "parse_failed_unknown": ("parser", "Parser failed for an uncategorized reason"),
     "missing_coordinates": ("geocoding", "Parsed location has no coordinates"),
     "workflow_error": ("provider_or_workflow_error", "Workflow/provider error"),
@@ -172,6 +175,7 @@ def _config_from_request(payload: PaperRunnerRunRequest) -> PaperMarketRunnerCon
         refresh_prices=payload.refresh_prices,
         create_trades=not payload.dry_run,
         allow_interval_contracts=payload.allow_interval_contracts,
+        allow_partial_started_windows=payload.allow_partial_started_windows,
         max_price_age_minutes=payload.max_price_age_minutes,
         max_forecast_age_hours=payload.max_forecast_age_hours,
         max_open_trades=payload.max_open_trades,

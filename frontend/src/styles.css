@@ -17,7 +17,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -41,6 +42,16 @@ button:disabled {
 }
 
 input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #b9c5bd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17201c;
+  padding: 0 10px;
+}
+
+select {
   width: 100%;
   min-height: 38px;
   border: 1px solid #b9c5bd;
@@ -98,10 +109,34 @@ h2 {
 
 .runConsole,
 .section,
-.stat {
+.stat,
+.safetyStrip,
+.filterBar,
+.viewTabs {
   border: 1px solid #d4ddd7;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.safetyStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
+.safetyStrip span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid #bad2c2;
+  border-radius: 999px;
+  background: #f3faf5;
+  color: #285d3d;
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 0 10px;
 }
 
 .runConsole {
@@ -150,6 +185,45 @@ h2 {
 .segmented button.active {
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(23, 32, 28, 0.12);
+}
+
+.viewTabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding: 6px;
+}
+
+.viewTabs button {
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  font-size: 0.86rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.viewTabs button.active {
+  background: #17201c;
+  color: #ffffff;
+}
+
+.filterBar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+}
+
+.filterBar label {
+  display: grid;
+  gap: 5px;
+  color: #53635a;
+  font-size: 0.76rem;
+  font-weight: 760;
+  text-transform: uppercase;
 }
 
 .compactSegment button {
@@ -224,7 +298,7 @@ h2 {
 
 .statsGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -404,6 +478,19 @@ td {
 
 tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:hover td {
+  background: #f8faf8;
+}
+
+.detailRow td {
+  background: #fbfcfb;
+  padding: 0;
 }
 
 .marketCell {
@@ -627,6 +714,23 @@ tbody tr:last-child td {
   border-right: 1px solid #edf1ee;
 }
 
+.cardButton {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.cardButton:hover {
+  background: transparent;
+}
+
 .runnerMetrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -654,6 +758,139 @@ tbody tr:last-child td {
 
 .runnerDetail .errorText {
   color: #8a3428;
+}
+
+.detailPanel,
+.snapshotPanel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.detailGrid div {
+  min-height: 58px;
+  border: 1px solid #edf1ee;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 9px;
+}
+
+.detailGrid dt {
+  color: #697970;
+  font-size: 0.7rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.detailGrid dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.compactDetail {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.detailNotes,
+.limitList {
+  display: grid;
+  gap: 8px;
+  color: #586860;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.warningText {
+  color: #8a3428;
+  font-weight: 760;
+}
+
+.snapshotPanel {
+  border: 1px solid #edf1ee;
+  border-radius: 6px;
+  background: #fbfcfb;
+  padding: 10px;
+}
+
+.evidenceStack {
+  display: grid;
+  gap: 16px;
+}
+
+.limitList {
+  border-top: 1px solid #edf1ee;
+  padding: 0 16px 16px;
+}
+
+.limitList span {
+  border: 1px solid #d8e0db;
+  border-radius: 6px;
+  background: #fbfcfb;
+  padding: 10px;
+}
+
+.diagnosticsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 16px;
+}
+
+.reasonList {
+  display: grid;
+}
+
+.reasonRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid #edf1ee;
+  padding: 10px 16px;
+}
+
+.reasonRow:last-child {
+  border-bottom: 0;
+}
+
+.reasonRow span {
+  overflow-wrap: anywhere;
+  font-weight: 720;
+}
+
+.reasonRow small {
+  color: #607168;
+}
+
+.reasonRow strong {
+  font-size: 1rem;
+}
+
+.errorReason {
+  grid-template-columns: minmax(0, 1fr) auto;
+  color: #8a3428;
+}
+
+.floatingError {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: min(420px, calc(100% - 32px));
+  border: 1px solid #d7a8a1;
+  border-radius: 8px;
+  background: #fff1ef;
+  color: #8a3428;
+  padding: 12px 14px;
+  box-shadow: 0 12px 28px rgba(23, 32, 28, 0.16);
 }
 
 .emptyState {
@@ -695,7 +932,11 @@ tbody tr:last-child td {
   .runnerGrid,
   .tradeGrid,
   .split,
-  .controlGrid {
+  .controlGrid,
+  .filterBar,
+  .diagnosticsGrid,
+  .detailGrid,
+  .compactDetail {
     grid-template-columns: 1fr;
   }
 
@@ -710,6 +951,14 @@ tbody tr:last-child td {
 
   .record dl {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reasonRow {
+    grid-template-columns: 1fr auto;
+  }
+
+  .reasonRow small {
+    grid-column: 1 / -1;
   }
 }
 

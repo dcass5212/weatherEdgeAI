@@ -113,6 +113,81 @@ export type EvaluationSummary = {
   calibration_buckets: CalibrationBucket[];
 };
 
+export type CoverageDiagnostics = {
+  candidate_prediction_count: number;
+  evaluated_prediction_count: number;
+  missing_outcome_count: number;
+  resolved_outcome_count_in_window: number;
+  unmatched_resolved_outcome_count: number;
+  excluded_prediction_model_version_count: number;
+};
+
+export type BaselineComparison = {
+  name: string;
+  prediction_count: number;
+  brier_score: number | null;
+  log_loss: number | null;
+  win_rate: number | null;
+};
+
+export type BacktestReport = EvaluationSummary & {
+  coverage_diagnostics: CoverageDiagnostics;
+  ev_recommendation_count: number;
+  paper_trade_count: number;
+  baseline_comparisons: BaselineComparison[];
+  sample_size_gate: string | null;
+};
+
+export type EvidenceReport = {
+  model_version: string;
+  start_date: string;
+  end_date: string;
+  source: string;
+  status: string;
+  sample_size_gate: string | null;
+  sample_size_note: string | null;
+  counts: {
+    markets: number;
+    predictions: number;
+    resolved_outcomes: number;
+    open_paper_trades: number;
+    resolved_paper_trades: number;
+    closed_paper_trades: number;
+    unresolved_paper_trades: number;
+  };
+  paper_trade_lifecycle: {
+    recommended_buy_signals: number;
+    recommended_but_not_traded: number;
+    open: number;
+    resolved: number;
+    manually_closed: number;
+    unresolved: number;
+    unresolved_past_target_window: number;
+  };
+  market_implied_coverage: {
+    evaluated_prediction_count: number;
+    with_market_implied_count: number;
+    missing_market_implied_count: number;
+    coverage_ratio: number | null;
+    missing_reason: string | null;
+  };
+  runner_summary: {
+    run_count: number;
+    latest_run_ids: number[];
+    discovered: number;
+    processed: number;
+    parsed: number;
+    forecasts_created: number;
+    predictions_created: number;
+    recommendations_created: number;
+    paper_trades_created: number;
+    skipped: Record<string, number>;
+    error_count: number;
+  };
+  backtest: BacktestReport;
+  interpretation_limits: string[];
+};
+
 export type PaperRunnerRun = {
   id: number;
   status: string;
@@ -129,6 +204,40 @@ export type PaperRunnerRun = {
   paper_trades_created: number;
   skipped: Record<string, number>;
   errors: string[];
+  config?: Record<string, unknown>;
+  actionable_recommendations?: number;
+  expected_paper_trades?: number;
+  report?: Record<string, unknown> | null;
+};
+
+export type PaperRunnerDiagnostics = {
+  source: string | null;
+  run_count: number;
+  latest_run_ids: number[];
+  discovered: number;
+  processed: number;
+  parsed: number;
+  forecasts_created: number;
+  predictions_created: number;
+  recommendations_created: number;
+  paper_trades_created: number;
+  stale_price_fallbacks_used: number;
+  skip_reasons: Array<{
+    reason: string;
+    count: number;
+    category: string;
+    label: string;
+  }>;
+  price_status_counts: Record<string, number>;
+  unsupported_price_reasons: Array<{
+    reason: string;
+    count: number;
+  }>;
+  error_count: number;
+  recent_errors: Array<{
+    run_id: number;
+    message: string;
+  }>;
 };
 
 export type DashboardSummary = {
@@ -189,6 +298,23 @@ export async function fetchPaperTrades(status?: string): Promise<PaperTrade[]> {
 
 export async function fetchResolvedOutcomes(): Promise<ResolvedOutcome[]> {
   return readJson<ResolvedOutcome[]>("/backtests/resolved-outcomes?limit=100");
+}
+
+export async function fetchPaperRunnerRuns(): Promise<PaperRunnerRun[]> {
+  return readJson<PaperRunnerRun[]>("/paper-runner/runs?limit=50");
+}
+
+export async function fetchPaperRunnerDiagnostics(): Promise<PaperRunnerDiagnostics> {
+  return readJson<PaperRunnerDiagnostics>("/paper-runner/diagnostics?limit=50");
+}
+
+export async function fetchEvidenceReport(startDate: string, endDate: string, modelVersion: string): Promise<EvidenceReport> {
+  const params = new URLSearchParams({
+    start_date: startDate,
+    end_date: endDate,
+    model_version: modelVersion,
+  });
+  return readJson<EvidenceReport>(`/evaluation/evidence-report?${params.toString()}`);
 }
 
 export async function runPaperWorkflow(): Promise<PaperWorkflowResult> {

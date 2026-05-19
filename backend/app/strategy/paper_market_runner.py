@@ -28,7 +28,15 @@ from app.db.models import (
     utc_now,
 )
 from app.db.repositories import latest_parsed_market, latest_price_snapshot
-from app.markets.market_discovery import DiscoveredMarket, DiscoveredPriceSnapshot, MarketDiscoveryService, MarketSourceRefreshService, build_source_diagnostics, normalize_price_snapshot
+from app.markets.market_discovery import (
+    WEATHER_KEYWORDS,
+    DiscoveredMarket,
+    DiscoveredPriceSnapshot,
+    MarketDiscoveryService,
+    MarketSourceRefreshService,
+    build_source_diagnostics,
+    normalize_price_snapshot,
+)
 from app.markets.market_parser import parse_precipitation_market
 from app.markets.polymarket_client import PublicMarketDataError
 from app.modeling.model_registry import DEFAULT_MODEL_VERSION, run_prediction_model
@@ -44,9 +52,9 @@ ForecastProvider = Callable[[ParsedMarket], Awaitable[WeatherForecastSnapshot]]
 @dataclass(frozen=True)
 class PaperMarketRunnerConfig:
     source: str = "polymarket"
-    keywords: list[str] = field(default_factory=lambda: ["rain", "weather", "precipitation"])
-    discovery_limit: int = 25
-    process_limit: int = 10
+    keywords: list[str] = field(default_factory=lambda: list(WEATHER_KEYWORDS))
+    discovery_limit: int = 50
+    process_limit: int = 25
     max_trades: int = 3
     quantity: float = 1.0
     min_liquidity: float = 0.0
@@ -54,6 +62,7 @@ class PaperMarketRunnerConfig:
     refresh_prices: bool = True
     create_trades: bool = True
     allow_interval_contracts: bool = settings.PAPER_RUNNER_ALLOW_INTERVAL_CONTRACTS
+    allow_partial_started_windows: bool = settings.PAPER_RUNNER_ALLOW_PARTIAL_STARTED_WINDOWS
     max_price_age_minutes: float | None = settings.PAPER_RUNNER_MAX_PRICE_AGE_MINUTES
     max_forecast_age_hours: float | None = settings.PAPER_RUNNER_MAX_FORECAST_AGE_HOURS
     max_open_trades: int | None = settings.PAPER_RUNNER_MAX_OPEN_TRADES
@@ -287,7 +296,7 @@ class PaperMarketRunner:
             priority = 0
         elif self._parse_failure_skip_reason(result.error) == "parse_failed_interval_contract":
             priority = 1
-        elif _looks_like_precipitation_market(market.question):
+        elif _looks_like_weather_market(market.question):
             priority = 2
         else:
             priority = 3
@@ -307,7 +316,7 @@ class PaperMarketRunner:
         if self._target_window_elapsed(parsed_market):
             self._skip("target_window_elapsed")
             return False
-        if self._target_window_started(parsed_market):
+        if self._target_window_started(parsed_market) and not self.config.allow_partial_started_windows:
             self._skip("target_window_started")
             return False
 
@@ -441,8 +450,9 @@ class PaperMarketRunner:
         parsed_market = latest_parsed_market(self.db, market.id)
         if parsed_market is not None:
             if parsed_market.operator == "between" and not self.config.allow_interval_contracts:
-                self._skip("parse_failed")
-                self._skip("parse_failed_interval_contract")
+                self._skip_parse_failure(
+                    "Unsupported precipitation interval contract: interval thresholds require interval probability modeling."
+                )
                 return None
             if (
                 parsed_market.target_start is not None
@@ -456,8 +466,7 @@ class PaperMarketRunner:
             allow_interval_contracts=self.config.allow_interval_contracts,
         )
         if not result.success or result.threshold_value is None:
-            self._skip("parse_failed")
-            self._skip(self._parse_failure_skip_reason(result.error))
+            self._skip_parse_failure(result.error)
             return None
         geocoded_location = await resolve_location_for_market(result.location_name or "")
         if geocoded_location is None:
@@ -477,7 +486,7 @@ class PaperMarketRunner:
             target_end=result.target_end,
             parse_confidence=result.parse_confidence,
             parser_version=result.parser_version,
-            raw_parse_json={**result.model_dump(mode="json"), "geocoding": geocoded_location.__dict__},
+            raw_parse_json={**result.model_dump(mode="json"), **(result.raw_parse_json or {}), "geocoding": geocoded_location.__dict__},
         )
         self.db.add(parsed_market)
         self.db.flush()
@@ -647,6 +656,12 @@ class PaperMarketRunner:
     def _skip(self, reason: str) -> None:
         self._skipped[reason] += 1
 
+    def _skip_parse_failure(self, error: str | None) -> None:
+        reason = self._parse_failure_skip_reason(error)
+        if reason != "parse_failed_interval_contract":
+            self._skip("parse_failed")
+        self._skip(reason)
+
     @staticmethod
     def _parse_failure_skip_reason(error: str | None) -> str:
         if not error:
@@ -662,12 +677,14 @@ class PaperMarketRunner:
             return "parse_failed_interval_contract"
         if "unsupported precipitation question wording" in lowered:
             return "parse_failed_unsupported_wording"
+        if "unsupported temperature question wording" in lowered:
+            return "parse_failed_unsupported_temperature_wording"
         return "parse_failed_unknown"
 
 
-def _looks_like_precipitation_market(question: str) -> bool:
+def _looks_like_weather_market(question: str) -> bool:
     lowered = question.lower()
-    return any(term in lowered for term in ("rain", "precipitation", "precip"))
+    return any(term in lowered for term in ("rain", "precipitation", "precip", "temperature", "temp"))
 
 
 def _aware_datetime(value: datetime) -> datetime:

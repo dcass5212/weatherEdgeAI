@@ -20,6 +20,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.session import SessionLocal  # noqa: E402
+from app.markets.market_discovery import WEATHER_KEYWORDS  # noqa: E402
 from app.modeling.model_registry import DEFAULT_MODEL_VERSION, available_model_versions  # noqa: E402
 from app.strategy.paper_market_runner import PaperMarketRunnerConfig, PaperMarketRunnerReport, run_paper_market_once_recorded  # noqa: E402
 
@@ -30,11 +31,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--keywords",
         nargs="+",
-        default=["rain", "weather", "precipitation"],
+        default=list(WEATHER_KEYWORDS),
         help="Weather keywords used for public market discovery.",
     )
-    parser.add_argument("--discovery-limit", type=int, default=25, help="Maximum public markets to discover.")
-    parser.add_argument("--process-limit", type=int, default=10, help="Maximum stored markets to process.")
+    parser.add_argument("--discovery-limit", type=int, default=50, help="Maximum public markets to discover.")
+    parser.add_argument("--process-limit", type=int, default=25, help="Maximum stored markets to process.")
     parser.add_argument("--max-trades", type=int, default=3, help="Maximum paper trades to create in this run.")
     parser.add_argument("--quantity", type=float, default=1.0, help="Maximum simulated quantity per paper trade.")
     parser.add_argument("--min-liquidity", type=float, default=0.0, help="Skip markets below this liquidity when present.")
@@ -97,6 +98,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Skip predictions when the created forecast snapshot timestamp is older than this many hours. Uses the environment default when omitted.",
     )
+    started_window_group = parser.add_mutually_exclusive_group()
+    started_window_group.add_argument(
+        "--allow-partial-started-windows",
+        dest="allow_partial_started_windows",
+        action="store_true",
+        help="Use observed precipitation to date plus remaining forecast for target windows that already started.",
+    )
+    started_window_group.add_argument(
+        "--skip-started-windows",
+        dest="allow_partial_started_windows",
+        action="store_false",
+        help="Keep the older behavior and skip any target weather window that has already started.",
+    )
+    parser.set_defaults(allow_partial_started_windows=None)
     parser.add_argument(
         "--no-refresh-prices",
         action="store_true",
@@ -209,6 +224,11 @@ def _config_from_args(args: argparse.Namespace) -> PaperMarketRunnerConfig:
             args.max_forecast_age_hours
             if args.max_forecast_age_hours is not None
             else PaperMarketRunnerConfig().max_forecast_age_hours
+        ),
+        allow_partial_started_windows=(
+            args.allow_partial_started_windows
+            if args.allow_partial_started_windows is not None
+            else PaperMarketRunnerConfig().allow_partial_started_windows
         ),
         max_open_trades=(
             args.max_open_trades if args.max_open_trades is not None else PaperMarketRunnerConfig().max_open_trades
